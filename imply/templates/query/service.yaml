@@ -1,0 +1,48 @@
+{{- if and .Values.deployments.agents (gt (.Values.query.replicaCount | int64) 0) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "imply.query.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.query.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+  {{- with .Values.query.service.labels }}
+{{ toYaml . | indent 4 }}
+  {{- end }}
+  {{- with .Values.query.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.query.service.type }}
+  {{- if .Values.query.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.query.service.loadBalancerIP }}
+  {{- end }}
+  ports:
+    {{- if .Values.query.service.routerPort }}
+    - name: router
+      protocol: {{ .Values.query.service.protocol }}
+      port: {{ .Values.query.service.routerPort }}
+      {{- if .Values.query.service.routerNodePort }}
+      nodePort: {{ .Values.query.service.routerNodePort }}
+      {{- end }}
+      targetPort: {{- if .Values.security.tls }} router-tls{{ else }} router{{ end }}
+    {{- end }}
+    {{- if .Values.query.service.pivotPort }}
+    - name: pivot
+      protocol: {{ .Values.query.service.protocol }}
+      {{- if .Values.query.service.pivotNodePort }}
+      nodePort: {{ .Values.query.service.pivotNodePort }}
+      {{- end }}
+      port: {{ .Values.query.service.pivotPort }}
+      targetPort: pivot
+    {{- end }}
+    {{- if .Values.query.service.extraPorts }}
+{{- toYaml .Values.query.service.extraPorts | nindent 4 }}
+    {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ include "imply.query.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

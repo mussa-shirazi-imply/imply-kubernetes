@@ -1,0 +1,71 @@
+
+Release name: {{ include "imply.fullname" . }}
+
+It may take a few minutes for the deployment to become available.
+
+Manager
+-------
+Once all the pods are running, you can access the Manager console at http{{- if .Values.security.tls }}s{{ end }}://127.0.0.1:9097 by running:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "imply.manager.internalService.fullname" . }} 9097
+
+{{- if .Values.manager.service.enabled }}
+{{- if contains "NodePort" .Values.manager.service.type }}
+
+To connect through the node port:
+
+  - Find the node IP address:
+      kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'
+  - Find the node port for the manager:
+      kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "imply.manager.fullname" . }}
+  - Connect to:
+      http://{NODE_IP}:{NODE_PORT}
+{{- else if contains "LoadBalancer" .Values.manager.service.type }}
+
+To connect through the load balancer:
+
+  - Wait for the load balancer to become available. You can watch the status by running:
+      kubectl get svc --namespace {{ .Release.Namespace }} -w {{ include "imply.manager.fullname" . }}
+  - Once an external IP address has been assigned, connect to:
+      http(s)://{EXTERNAL-IP}:{{ tpl (.Values.manager.service.port | toString) . }}
+{{- end }}
+{{- end }}
+
+Pivot and Druid Console
+-----------------------
+Once the Imply Manager reports that the cluster is running, you can set up port forwarding by running:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "imply.query.fullname" . }} {{ .Values.query.service.routerPort }} {{ .Values.query.service.pivotPort }}
+
+Then connect to:
+{{- if .Values.query.service.pivotPort }}
+  - Pivot: http{{- if .Values.security.tls }}s{{ end }}://127.0.0.1:{{ .Values.query.service.pivotPort }}
+{{- end }}
+{{- if .Values.query.service.routerPort }}
+  - Druid: http{{- if .Values.security.tls }}s{{ end }}://127.0.0.1:{{ .Values.query.service.routerPort }}
+{{- end }}
+
+{{- if contains "NodePort" .Values.query.service.type }}
+
+To connect through the node port:
+
+  - Find the node IP address:
+      kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'
+  - Find the node ports for Pivot and the Druid console:
+      kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[*].nodePort}" services {{ include "imply.query.fullname" . }}
+  - Connect to:
+      http://{NODE_IP}:{NODE_PORT}
+{{- else if contains "LoadBalancer" .Values.query.service.type }}
+
+To connect through the load balancer:
+
+  - Wait for the load balancer to become available. You can watch the status by running:
+      kubectl get svc --namespace {{ .Release.Namespace }} -w {{ include "imply.query.fullname" . }}
+  - Once an external IP address has been assigned, connect to:
+    {{- if .Values.query.service.pivotPort }}
+      Pivot: http(s)://{EXTERNAL-IP}:{{ .Values.query.service.pivotPort }}
+    {{- end }}
+    {{- if .Values.query.service.routerPort }}
+      Druid: http(s)://{EXTERNAL-IP}:{{ .Values.query.service.routerPort }}
+    {{- end }}
+{{- end }}

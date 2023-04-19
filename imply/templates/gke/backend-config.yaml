@@ -1,0 +1,12 @@
+{{- if and .Values.manager.kubernetesMode .Values.manager.ingress.enabled -}}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ include "imply.fullname" . }}
+spec:
+  timeoutSec: 300
+  securityPolicy:
+    name: {{ default "\"\"" .Values.manager.ingress.gcpSecurityPolicy }}
+  healthCheck:
+    requestPath: /healthz
+{{- end }}

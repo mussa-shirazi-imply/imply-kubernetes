@@ -1,0 +1,176 @@
+## As weighted quorums are not supported, it is imperative that an odd number of replicas
+## be chosen. Moreover, the number of replicas should be either 1, 3, 5, or 7.
+##
+## ref: https://github.com/kubernetes/contrib/tree/master/statefulsets/zookeeper#stateful-set
+replicaCount: 3  # Desired quantity of ZooKeeper pods. This should always be (1,3,5, or 7)
+
+podDisruptionBudget:
+  maxUnavailable: 1  # Limits how many Zokeeper pods may be unavailable due to voluntary disruptions.
+
+terminationGracePeriodSeconds: 1800  # Duration in seconds a Zokeeper pod needs to terminate gracefully.
+
+updateStrategy:
+  type: RollingUpdate
+
+## StatefulSet controller supports relax its ordering guarantees while preserving its uniqueness and identity guarantees. There are two valid pod management policies: OrderedReady and Parallel
+## ref: https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#pod-management-policy
+##
+podManagementPolicy: Parallel
+
+## refs:
+## - https://github.com/kubernetes/contrib/tree/master/statefulsets/zookeeper
+## - https://github.com/kubernetes/contrib/blob/master/statefulsets/zookeeper/Makefile#L1
+image:
+  repository: zookeeper     # Container image repository for zookeeper container.
+  tag: 3.7.1                # Container image tag for zookeeper container.
+  pullPolicy: IfNotPresent  # Image pull criteria for zookeeper container.
+
+service:
+  type: ClusterIP  # Exposes zookeeper on a cluster-internal IP.
+  annotations: {}  # Arbitrary non-identifying metadata for zookeeper service.
+    ## AWS example for use with LoadBalancer service type.
+    # external-dns.alpha.kubernetes.io/hostname: zookeeper.cluster.local
+    # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+  ports:
+    client:
+      port: 2181  # Service port number for client port.
+      targetPort: client  # Service target port for client port.
+      protocol: TCP  # Service port protocol for client port.
+
+## Headless service.
+##
+headless:
+  annotations: {}
+  # publishNotReadyAddresses, default false for backward compatibility
+  # set to true to register DNS entries for unready pods, which helps in rare
+  # occasions when cluster is unable to be created, DNS caching is enforced
+  # or pods are in persistent crash loop
+  publishNotReadyAddresses: true
+
+ports:
+  client:
+    containerPort: 2181  # Port number for zookeeper container client port.
+    protocol: TCP  # Protocol for zookeeper container client port.
+  election:
+    containerPort: 3888  # Port number for zookeeper container election port.
+    protocol: TCP  # Protocol for zookeeper container election port.
+  server:
+    containerPort: 2888  # Port number for zookeeper container server port.
+    protocol: TCP  # Protocol for zookeeper container server port.
+
+resources: {}  # Optionally specify how much CPU and memory (RAM) each zookeeper container needs.
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+priorityClassName: ""
+
+nodeSelector: {}  # Node label-values required to run zookeeper pods.
+
+tolerations: []  # Node taint overrides for zookeeper pods.
+
+affinity: {}  # Criteria by which pod label-values influence scheduling for zookeeper pods.
+  # podAntiAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #     - topologyKey: "kubernetes.io/hostname"
+  #       labelSelector:
+  #         matchLabels:
+  #           release: zookeeper
+
+topologySpreadConstraints: []  # Control how Pods are spread across your cluster among failure-domains such as regions, zones, nodes, and other user-defined topology domains.
+  # - maxSkew: <integer>
+  #   minDomains: <integer> # optional; beta since v1.25
+  #   topologyKey: <string>
+  #   whenUnsatisfiable: <string>
+  #   labelSelector: <object>
+  #   matchLabelKeys: <list> # optional; alpha since v1.25
+  #   nodeAffinityPolicy: [Honor|Ignore] # optional; beta since v1.26
+  #   nodeTaintsPolicy: [Honor|Ignore] # optional; beta since v1.26
+
+podAnnotations: {}  # Arbitrary non-identifying metadata for zookeeper pods.
+
+podLabels: {}  # Key/value pairs that are attached to zookeeper pods.
+  # team: "developers"
+  # service: "zookeeper"
+
+securityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+
+## Useful, if you want to use an alternate image.
+command:
+  - /bin/bash
+  - -xec
+  - /config-scripts/run
+
+## Useful if using any custom authorizer.
+## Pass any secrets to the kafka pods. Each secret will be passed as an
+## environment variable by default. The secret can also be mounted to a
+## specific path (in addition to environment variable) if required. Environment
+## variable names are generated as: `<secretName>_<secretKey>` (All upper case)
+# secrets:
+# - name: myKafkaSecret
+#   keys:
+#     - username
+#     - password
+#   # mountPath: /opt/kafka/secret
+# - name: myZkSecret
+#   keys:
+#     - user
+#     - pass
+#   mountPath: /opt/zookeeper/secret
+
+persistence:
+  enabled: true
+  ## zookeeper data Persistent Volume Storage Class
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+  ##   GKE, AWS & OpenStack)
+  ##
+  # storageClass: "-"
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+hooks:
+  stsUpdate: false
+
+## Use an alternate scheduler, e.g. "stork".
+## ref: https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/
+##
+# schedulerName:
+
+## ref: https://github.com/kubernetes/contrib/tree/master/statefulsets/zookeeper
+env:
+  ## The port on which the server will accept client requests.
+  ZOO_PORT: 2181
+
+  ## The number of Ticks that an ensemble member is allowed to perform leader
+  ## election.
+  ZOO_INIT_LIMIT: 5
+
+  ZOO_TICK_TIME: 2000
+
+  ## The maximum number of concurrent client connections that
+  ## a server in the ensemble will accept.
+  ZOO_MAX_CLIENT_CNXNS: 60
+
+  ## The number of Tick by which a follower may lag behind the ensembles leader.
+  ZK_SYNC_LIMIT: 10
+
+  ## The number of wall clock ms that corresponds to a Tick for the ensembles
+  ## internal time.
+  ZK_TICK_TIME: 2000
+
+  ZOO_AUTOPURGE_PURGEINTERVAL: 0
+  ZOO_AUTOPURGE_SNAPRETAINCOUNT: 3
+  ZOO_STANDALONE_ENABLED: false

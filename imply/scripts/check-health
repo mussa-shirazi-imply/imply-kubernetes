@@ -1,0 +1,149 @@
+#!/bin/bash -u
+WHEREAMI="$(dirname "${BASH_SOURCE:-$0}")"
+# shellcheck source=get-keycloak-token
+source "$WHEREAMI/get-keycloak-token"
+# Imply Cloud Agent Health Check Script
+# 
+# This script acts as a middle layer betwen Kubernetes probes and the Imply Cloud manager.
+# Kubernetes periodically runs probes for pod liveness and readiness.  In the event that a
+# probe fails, Kubernetes will attempt to remidate the issue based on the probe type.
+#   
+#   Liveness probe type: Kubernetes restarts the pod
+#   Readiness probe type: Kubernetes stops directing traffic to the pod
+#
+# Kubernetes assumes that it is the only system controlling pods, however this is not
+# the case when Imply Cloud manager is managing Imply clusters.  When the manager is
+# performing actions on the cluster such as creation or upgrade we do not want Kubernetes
+# to restart a pod for any reason.
+# 
+# This script allows us to include Imply cluster state information in the Kubernetes probe.
+# It will only return a failure in the case that Imply services are unavailable on the agent
+# and the cluster is in the RUNNING state.  If the cluster state can not be determined for
+# any reason (i.e manager is down) the script does not return a failure
+
+# ---------
+# Syslog
+exec 1> >(logger -s -t "[agent-health]" 2>&1)
+exec 2> >(logger -s -t "[agent-health]")
+
+# ---------
+# Functions
+usage() {
+  echo "Usage: $0 [-hsr] [-m <string>] [-p <int>] [-c <string>] [-a <string>]" 1>&2;
+  for msg in "$@"; do
+    echo "$msg" 1>&2
+  done
+
+  exit 1
+}
+
+post() {
+  local PARAMS=(-s -X POST -H "$CONTENT_JSON" -d "$1")
+  [ -n "$AUTH" ] && PARAMS+=(-u "imply:$AUTH")
+  if [ "${KEYCLOAK_HOST:-}" ]
+  then
+    token=$(getToken)
+    PARAMS+=(-H "Authorization: Bearer $token")
+  fi
+  PARAMS+=("$ACTION_URI")
+  curl "${PARAMS[@]}"
+}
+
+# ---------
+# Constants
+SCHEMA="http"
+CONTENT_JSON="Content-Type: application/json"
+
+# ---------
+# Variables
+MANAGER=${IMPLY_MANAGER_HOST-""}
+TOKEN_FILE="check-health-keycloak.json"
+MANAGER_PORT=${IMPLY_MANAGER_BE_PORT:-9989}
+CLUSTERID=${IMPLY_MANAGER_AGENT_CLUSTER:-""}
+HTTPS=false
+READINESS=false
+AUTH="${IMPLY_MANAGER_AUTH_TOKEN:-""}"
+
+# ---------
+# CLI Options
+while getopts ":n:m:p:c:a:srh" o; do
+  case "${o}" in
+    m)
+      MANAGER=${OPTARG}
+      ;;
+    p)
+      MANAGER_PORT=${OPTARG}
+      ;;
+    c)
+      CLUSTERID=${OPTARG}
+      ;;
+    a)
+      AUTH=${OPTARG}
+      ;;
+    s)
+      HTTPS=true
+      ;;
+    r)
+      READINESS=true
+      ;;
+    h | *)
+      usage
+  esac
+done
+
+# ---------
+# Validation
+if [ -z "$MANAGER" ]; then
+  usage "Unable to detect manager, specify with -m."
+elif [ -z "$CLUSTERID" ]; then
+  usage "Unable to detect cluster, specify with -c."
+elif [ "$MANAGER_PORT" -le 0 ] || [ "$MANAGER_PORT" -gt 65535 ]; then
+  usage "Port must be between 1-65535"
+fi
+
+# ---------
+# Initialization
+if [ "${HTTPS}" = true ]; then
+  SCHEMA="https"
+fi
+
+ACTION_URI="${SCHEMA}://${MANAGER}:${MANAGER_PORT}/manager/v1/action"
+
+DESCRIBE_CLUSTER_PAYLOAD=$(cat <<EOT
+{
+  "type": "describeCluster",
+  "clusterId": "$CLUSTERID"
+}
+EOT
+)
+
+# ---------
+# Script
+
+# Run health check 
+
+if grove-health imply --syslog > /dev/null 2>&1; then
+  exit 0
+elif [ "${READINESS}" = true ]; then
+  # Too spammy to try and log here, so don't!
+  exit 1
+fi
+
+# Health check failed, check cluster state 
+
+# Describe Imply cluster
+if ! RESPONSE=$(post "$DESCRIBE_CLUSTER_PAYLOAD"); then
+  echo "Failed to query manager, ignoring health check result"
+  exit 0
+fi
+
+# Fail if cluster is in the RUNNING state
+STATE=$(echo "$RESPONSE" | jq -rj '.info.state' 2>/dev/null)
+if [ "$STATE" == "RUNNING" ]; then
+  echo "Cluster in state [$STATE], health check failed"
+  exit 1
+elif [ "$STATE" != "null" ]; then
+  echo "Cluster in state [$STATE], ignoring health check result"
+else
+  echo "Invalid response from manager, ignoring health check result"
+fi

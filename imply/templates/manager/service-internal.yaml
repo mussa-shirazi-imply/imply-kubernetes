@@ -1,0 +1,25 @@
+{{- if .Values.deployments.manager -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "imply.manager.internalService.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+spec:
+  ports:
+    - port: 9097
+      targetPort: manager-fe
+      name: manager-fe
+    - port: 9989
+      targetPort: manager-be
+      name: manager-be
+    - port: 9998
+      targetPort: grove-internal
+      name: grove-internal
+    - port: 9999
+      targetPort: grove-http
+      name: grove-http
+  selector:
+    app.kubernetes.io/name: {{ include "imply.manager.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if .Values.master.configFiles -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "imply.master.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.master.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+data:
+{{- range $path, $val := .Values.master.configFiles }}
+  {{ $path | replace "/" "-" | replace "." "-" }}: |
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}

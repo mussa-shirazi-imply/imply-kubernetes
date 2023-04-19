@@ -1,0 +1,15 @@
+{{- if .Values.manager.kubernetesMode -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "imply.manager.fullname" . }}
+data:
+  prod-dataInstanceTypes.json: |
+    {{ .Values.manager.kubernetesMode.config.dataInstanceTypes | toJson }}
+  prod-masterInstanceTypes.json: |
+    {{ .Values.manager.kubernetesMode.config.masterInstanceTypes | toJson }}
+  prod-queryInstanceTypes.json: |
+    {{ .Values.manager.kubernetesMode.config.queryInstanceTypes | toJson }}
+  prod-druidInstanceTypeConfigurationsVersioned.json: |
+    {{ .Values.manager.kubernetesMode.config.druidInstanceTypeConfigurationsVersioned | toJson }}
+{{- end }}

@@ -1,0 +1,14 @@
+{{- if .Values.peon }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "peon-configs"
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+data:
+{{- range $path, $val := .Values.peon.configFiles }}
+  {{ $path | replace "/" "-" | replace "." "-" }}: |
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}
+

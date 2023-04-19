@@ -1,0 +1,57 @@
+{{- $queryfullName := include "imply.query.fullname" . -}}
+{{- if .Values.query.ingress.router -}}
+  {{- if .Values.query.ingress.router.enabled -}}
+apiVersion: "networking.k8s.io/v1"
+kind: Ingress
+metadata:
+  name: {{ include "imply.router.ingressName" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.query.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+  annotations:
+  {{- with .Values.query.ingress.router.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  rules:
+    - http:
+    {{- if .Values.query.ingress.router.paths }}
+        paths:
+    {{- range .Values.query.ingress.router.paths }}
+          - path: {{ . }}
+            pathType: {{ $.Values.query.ingress.router.pathType }}
+            backend:
+              service:
+                name: {{ $queryfullName }}
+                port:
+                  name: router
+    {{- end }}
+    {{- end }}
+    {{- if .Values.query.ingress.router.host }}
+      host: {{ .Values.query.ingress.router.host }}
+    {{- end }}
+  {{- range .Values.query.ingress.router.rules }}
+    - http:
+        paths:
+    {{- $pathType := .pathType | default "Prefix" }}
+    {{- range .paths }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $queryfullName }}
+                port:
+                  name: router
+    {{- end }}
+    {{- if .host }}
+      host: {{ .host }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.query.ingress.router.tls }}
+  tls:
+{{ toYaml .Values.query.ingress.router.tls | indent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

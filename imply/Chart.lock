@@ -1,0 +1,12 @@
+dependencies:
+- name: zookeeper
+  repository: https://static.imply.io/onprem/helm/
+  version: 3.2.0
+- name: mysql
+  repository: https://charts.helm.sh/stable
+  version: 1.5.0
+- name: minio
+  repository: https://charts.helm.sh/stable
+  version: 5.0.16
+digest: sha256:5b271251a29b303661f13734b81828a7af4b4efcedf317da4cfe4cec76838001
+generated: "2023-01-27T11:26:24.039208-07:00"

@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-ingress
+  annotations: {}
+spec:
+  rules:
+    - host: manager.testzone.io
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: imply-manager-int
+                port:
+                  number: 9097
+            pathType: ImplementationSpecific
+    - host: query.testzone.io
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: imply-query
+                port:
+                  number: 8888
+            pathType: ImplementationSpecific

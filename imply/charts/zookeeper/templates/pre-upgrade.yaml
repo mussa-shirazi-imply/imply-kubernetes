@@ -1,0 +1,35 @@
+{{- if .Values.hooks.stsUpdate -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "zookeeper.fullname" . }}-statefulset-replace
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    app: {{ template "zookeeper.name" . }}
+    chart: {{ template "zookeeper.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    component: server
+spec:
+  ttlSecondsAfterFinished: 90
+  template:
+    metadata:
+      name: {{ template "zookeeper.fullname" . }}-statefulset-replace
+    spec:
+      containers:
+        - name: kubectl
+          image: "k8s.gcr.io/hyperkube:v1.12.1"
+          imagePullPolicy: "IfNotPresent"
+          command:
+          - /bin/sh
+          - -c
+          - >
+              if [[ $(kubectl get statefulsets.apps -l app={{ template "zookeeper.name" . }} -o yaml | grep "OrderedReady" | wc -l) > 0 ]]; then
+                echo "Replace Zookeeper StatefulSets..."
+                kubectl get statefulsets.apps -l app={{ template "zookeeper.name" . }} -o yaml | sed "s/OrderedReady/Parallel/g" | kubectl replace --force=true --cascade=false -f - 
+              fi
+      restartPolicy: Never
+{{- end }}

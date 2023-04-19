@@ -1,0 +1,43 @@
+#!/bin/bash -eu
+
+# Copyright 2019 Imply Data, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+if [ "$#" -ne 2 ]
+then
+  >&2 echo "usage: $0 <service> <conf-dir>"
+  exit 1
+fi
+
+CURDIR="$(pwd)"
+WHEREAMI="$(dirname "$0")"
+WHATAMI="$1"
+CONFDIR="$2"
+
+CONFDIR="$(cd "$CONFDIR" && pwd)/druid"
+JAVA_BIN="$(source "$CURDIR"/bin/java-util && get_java_bin_dir)"
+if [ -z "$JAVA_BIN" ]; then
+  >&2 echo "Could not find java - please run $CURDIR/bin/java-util to confirm it is installed."
+  exit 1
+fi
+cd "$WHEREAMI/.."
+
+JVM_ARGS=()
+while IFS= read -r line && [[ -n "$line" ]]; do
+  JVM_ARGS+=("$line")
+done < "$CONFDIR"/"$WHATAMI"/jvm.config
+
+exec "$JAVA_BIN"/java "${JVM_ARGS[@]}" \
+  -cp "$CONFDIR"/"$WHATAMI":"$CONFDIR"/_common:"$CURDIR/dist/resources":"$CURDIR/dist/druid/lib/*":"$CONFDIR/user-classpath":"$CONFDIR/user-classpath/*" \
+  `cat "$CONFDIR"/$WHATAMI/main.config | sed "s/io.druid/org.apache.druid/" | xargs`

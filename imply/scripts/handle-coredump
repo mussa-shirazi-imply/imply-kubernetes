@@ -1,0 +1,130 @@
+#!/bin/bash -u
+
+# Imply Cloud handle-coredump
+# 
+# This script is called when a druid process encounters an out of memory exception.
+#
+# It will validate the coredump and upload it to an AWS S3 bucket with the following information
+# in the file name
+# Cluster ID
+# Organization ID
+# Druid Process name
+# Timestamp
+#
+# Logging is also enabled to track any failures in the upload process
+
+
+# ---------
+# Syslog
+
+if logger -s "Checking for a syslog server to redirect output to"; then
+  AGENT_TAG="[agent-coredump]"
+  (return 0 2>/dev/null) || exec 1> >(logger -s -t "${AGENT_TAG}" 2>&1)
+  (return 0 2>/dev/null) || exec 2> >(logger -s -t "${AGENT_TAG}")
+fi
+
+HOME="$(mktemp -d)"
+export HOME
+# ---------
+# Functions
+usage() {
+  echo "Usage: $0 process_id" 1>&2;
+  for msg in "$@"; do
+    echo "$msg" 1>&2
+  done
+  exit 1
+}
+
+check_app() {
+  if [ -z "$(which "${1}")" ]; then
+    backup_coredump_on_fail
+    usage "Missing required application ${1}"
+  fi
+}
+
+verify_environment() {
+  check_app aws
+  check_app groff
+}
+
+get_proc_name() {
+  IMPLY_SERVICE=$(ps -q "${1}" -o command | tr ' ' '\n' | grep "\-Dimply\.service");
+  if [ -z "${IMPLY_SERVICE}" ]; then
+    echo "unknown"
+  else
+    # Splitting -Dimply.service by '='
+    # shellcheck disable=SC2206
+    arrService=(${IMPLY_SERVICE//=/ })
+    echo "${arrService[1]}"
+  fi
+}
+
+validate_args() {
+  if [ -z "$CLUSTER_ID" ]; then
+    backup_coredump_on_fail
+    usage "Unable to detect cluster, specify with IMPLY_MANAGER_AGENT_CLUSTER environment variable."
+  elif [ -z "$PROCESS_ID" ]; then
+    backup_coredump_on_fail
+    usage "Unable to detect druid process name, PID must be passed as a single paramter"
+  elif [ -z "$COREDUMP_BUCKET_URI" ]; then
+    backup_coredump_on_fail
+    usage "Unable to detect coredump bucket URI, specify with IMPLY_COREDUMP_BUCKET_URI environment variable"
+  fi
+}
+
+backup_coredump_on_fail() {
+  # Used to restore legacy functionaliy if we fail to upload the file.
+  if [ -f "${DUMP_FILE_PATH}" ]; then
+    DUMP_BACKUP="${DUMP_DIR}/druid-${DRUID_PROCESS_NAME}.hprof"
+    echo "Failed to upload coredump ${DUMP_FILE_PATH}, moving to ${DUMP_BACKUP}"
+    mv "${DUMP_FILE_PATH}" "${DUMP_BACKUP}"
+  fi
+}
+
+# ---------
+# Variables
+# Params
+PROCESS_ID=${1}
+DRUID_PROCESS_NAME="unkown"
+# Env
+CLUSTER_ID=${IMPLY_MANAGER_AGENT_CLUSTER:-""}
+COREDUMP_BUCKET_URI=${IMPLY_COREDUMP_BUCKET_URI:-""}
+COREDUMP_S3_ENDPOINT_URL=${IMPLY_COREDUMP_S3_ENDPOINT_URL:-""}
+export AWS_ACCESS_KEY_ID=${IMPLY_COREDUMP_STORAGE_USERNAME:-}
+export AWS_SECRET_ACCESS_KEY=${IMPLY_COREDUMP_STORAGE_PASSWORD:-}
+
+#Static
+DUMP_DIR="/mnt/tmp"
+
+#Processed
+DUMP_FILE_PATH="${DUMP_DIR}/java_pid${PROCESS_ID}.hprof"
+
+# ---------
+# Script
+main() {
+  verify_environment
+  validate_args
+
+  AWS_CLI_ARGS=
+  if [ -n "${COREDUMP_S3_ENDPOINT_URL}" ]; then
+    echo "found s3 endpoint URL ${COREDUMP_S3_ENDPOINT_URL}"
+    AWS_CLI_ARGS="--endpoint-url ${COREDUMP_S3_ENDPOINT_URL}"
+  fi
+
+  TIMESTAMP=$(date +"%Y-%m-%d-%I-%M-%S")
+  DRUID_PROCESS_NAME=$(get_proc_name "${PROCESS_ID}")
+
+  TARGET_FILE_NAME=${CLUSTER_ID}/${DRUID_PROCESS_NAME}-${TIMESTAMP}.hprof
+  DESTINATION_URI="${COREDUMP_BUCKET_URI}/${TARGET_FILE_NAME}"
+
+  echo "Copying file ${DUMP_FILE_PATH} to ${DESTINATION_URI}"
+  # shellcheck disable=SC2086
+  if ! aws s3 $AWS_CLI_ARGS cp "${DUMP_FILE_PATH}" "${DESTINATION_URI}" >/dev/null 2>&1; then
+    backup_coredump_on_fail
+  else
+    echo "Removing ${DUMP_FILE_PATH}"
+    rm "${DUMP_FILE_PATH}"
+  fi
+}
+
+(return 0 2>/dev/null) || main

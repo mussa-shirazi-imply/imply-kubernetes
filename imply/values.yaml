@@ -1,0 +1,585 @@
+nameOverride:
+fullnameOverride:
+
+images:
+  manager:
+    repository: imply/manager
+    tag: "2023.03.1"
+  agent:
+    repository: imply/agent
+    tag: "v15"
+  pullPolicy: IfNotPresent
+
+deployments:
+  manager: true
+  agents: true
+
+  zookeeper: true
+  mysql: false
+  minio: true
+
+security: {}
+  # To enable authentication used between the services, provide the name of a secret containing an auth token.
+  # This will also enable Druid user based authentication.
+  # eg. kubectl create secret generic imply-auth-token --from-literal="auth-token=$(openssl rand -base64 32)"
+  # auth:
+  #   secretName: imply-auth-token
+  # To enable TLS, create a kubectl secret with the CA key and certificate
+  # that will be used to generate certificates.
+  # eg. kubectl create secret tls imply-ca --key path/to/ca.key --cert path/to/ca.crt
+  # tls:
+  #   secretName: imply-ca
+
+agents:
+  managerHost: "{{ include \"imply.manager.internalService.fullname\" . }}"
+  clusterName: default
+  # Allows the termination grace period to be overwritten to comply with stringent K8s environment requirements.
+  # Note that this value is set to 86400 seconds (24 hours) by default intentionally to allow running ingestion 
+  # tasks to finish and segment re-balancing to occur before the pod is removed. If you want to set this value
+  # lower, please make sure that you manually pause or abort any ongoing data ingestion tasks and check the 
+  # segmentation replication state in Druid Console before changing the agent image, otherwise, it could lead 
+  # to partial results when querying the cluster.
+  terminationGracePeriodSeconds: 86400
+
+manager:
+  secretName: imply-secrets
+  licenseKey: | # <if not using K8s Secrets, insert license key below this line, indented 4 spaces>
+
+  # Tell the Manager about custom versions that it should make available. For instance if you update this to:
+  # customVersions:
+  # - 2021.01-hdp-2.7.3.2.6.5.0-292
+  # and mount imply-2021.01-hdp-2.7.3.2.6.5.0-292.tar.gz in /mnt/var/user on the manager pod it will be available
+  # as a version to use in the Manager.
+  customVersions: []
+
+  metadataStore:
+    type: postgresql
+    host: postgres.default.svc.cluster.local
+    port: 5432
+    user: admin
+    password: psltest
+    database: imply-manager
+    # tlsCert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+  resources:
+    requests:
+      cpu: 300m
+      memory: 500M
+    # limits:
+    #   cpu:
+    #   memory:
+  service:
+    enabled: false
+    type: LoadBalancer
+    port: "{{ ternary 80 443 (empty .Values.security.tls) }}"
+    # nodePort:
+    # loadBalancerIP:
+    protocol: TCP
+    annotations: {}
+      # service.beta.kubernetes.io/aws-load-balancer-ssl-cert:
+      # service.beta.kubernetes.io/aws-load-balancer-backend-protocol: http
+      # service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    labels: {}
+  ingress:
+    enabled: false
+    pathType: Prefix
+    paths:
+    - /*
+    # host: imply.mycompany.com
+    annotations: {}
+    tls: {}
+    # - hosts:
+    #   - imply.mycompany.com
+    #   secretName: mytls-secret
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraInitContainers: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  annotations: {}
+  labels: {}
+  serviceAccountName: ""
+  schedulerName: ""
+  securityContext: {}
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+
+druid:
+  # By default values under druid are only used as the defaults for new clusters.
+  # If you are running a single cluster and would like changes here to cause your 
+  # cluster to be updated with the new values, set the update field to rolling or hard.
+  # Possible values:
+  # disabled - changes will not be synced
+  # rolling - if the change can be performed with no cluster downtime it will be applied
+  # hard - cluster will be restarted to apply the change
+  # Note that if another update is currently in progress the changes will not be applied.
+  # Log output of the update can be found in the manager pod.
+  update: disabled
+  metadataStore:
+    type: mysql
+    host: "{{ .Release.Name }}-mysql"
+    port: 3306
+    user: root
+    password: imply
+    # tlsCert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+  zk:
+    connectString: "{{ .Release.Name }}-zookeeper:2181"
+    basePath: imply
+  deepStorage:
+    type: s3
+    path: "s3://imply/"
+    user: imply
+    password: implypassword
+  customFiles: []
+  userExtensions: {}
+  # The default Imply version for clusters. If empty, the default is the latest available or
+  # if no connection to the internet is available, the version packaged with the manager.
+  #
+  # Example:
+  # implyVersion: "2021.02"
+  #
+  implyVersion: ""
+
+  commonRuntimeProperties:
+    - "# MinIO configurations"
+    - "druid.s3.endpoint.url=http://{{ .Release.Name }}-minio:9000"
+    - "druid.s3.enablePathStyleAccess=true"
+  coordinatorRuntimeProperties: []
+  overlordRuntimeProperties: []
+  historicalRuntimeProperties: []
+  historicalTier1RuntimeProperties: []
+  historicalTier2RuntimeProperties: []
+  historicalTier3RuntimeProperties: []
+  middleManagerRuntimeProperties: []
+  middleManagerTier1RuntimeProperties: []
+  middleManagerTier2RuntimeProperties: []
+  middleManagerTier3RuntimeProperties: []
+  brokerRuntimeProperties: []
+  routerRuntimeProperties: []
+  pivotRuntimeProperties: []
+
+master:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 500M
+    # limits:
+    #   cpu:
+    #   memory:
+  headlessService:
+    extraPorts: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraPorts: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  annotations: {}
+  labels: {}
+  serviceAccountName: ""
+  schedulerName: ""
+  podDisruptionBudget:
+    maxUnavailable: 1
+  securityContext:
+    fsGroup: 1001
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+  # Probes are already enabled by default. Use the following 
+  # section to override probe configurations.
+  # readinessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # livenessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # startupProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 90
+
+query:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 400m
+      memory: 1200M
+    # limits:
+    #   cpu:
+    #   memory:
+  service:
+    type: ClusterIP
+    routerPort: 8888  # Leave blank to not expose the router through the Service
+    pivotPort: 9095   # Leave blank to not expose Pivot through the Service
+    # routerNodePort:
+    # pivotNodePort:
+    # loadBalancerIP:
+    protocol: TCP
+    annotations: {}
+      # service.beta.kubernetes.io/aws-load-balancer-ssl-cert:
+      # service.beta.kubernetes.io/aws-load-balancer-backend-protocol: http
+    labels: {}
+  headlessService:
+    extraPorts: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraPorts: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  annotations: {}
+  labels: {}
+  ingress:
+    pivot:
+      enabled: false
+      pathType: Prefix
+      paths:
+      - /*
+      host: #pivot.mycompany.com
+      annotations: {}
+      tls: {}
+      # - hosts:
+      #   - pivot.mycompany.com
+      #   secretName: mytls-secret
+    router:
+      enabled: false
+      pathType: Prefix
+      paths:
+      - /*
+      host: #druid-console.mycompany.com
+      annotations: {}
+      tls: {}
+      # - hosts:
+      #   - router.mycompany.com
+      #   secretName: mytls-secret
+  serviceAccountName: ""
+  schedulerName: ""
+  podDisruptionBudget:
+    maxUnavailable: 1
+  securityContext:
+    fsGroup: 1001
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+  # Probes are already enabled by default. Use the following 
+  # section to override probe configurations.
+  # readinessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # livenessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # startupProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 90
+
+dataTier1:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 400m
+      memory: 1300M
+    # limits:
+    #   cpu:
+    #   memory:
+  persistence:
+    # If persistence is disabled, extraVolumes or extraVolumeClaimTemplates should 
+    # be configured with the names:
+    # - var - for the segment cache
+    # - tmp - for the temp directory
+    enabled: true
+  segmentCacheVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 20Gi
+    selector: {}
+  tmpVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 10Gi
+    selector: {}
+  headlessService:
+    extraPorts: []
+  extraVolumeClaimTemplates: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraPorts: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  annotations: {}
+  labels: {}
+  serviceAccountName: ""
+  schedulerName: ""
+  # Updates vm.max_map_count to the specified value.
+  sysctlInitContainer:
+    enabled: true
+    sysctlVmMaxMapCount: 500000
+    sysctlKernelThreadsMax: 999999
+  podDisruptionBudget:
+    maxUnavailable: 1
+  securityContext:
+    fsGroup: 1001
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+  tmpVolumeName: tmp
+  tmpVolumeSubpath: ""
+  varVolumeName: var
+  varVolumeSubpath: ""
+  # If using Istio the istio-proxy side car will be terminated before the historical Pod has had the ability
+  # to gracefully shutdown. Uncomment the following block to ensure the network stays available during the
+  # graceful shutdown process.
+  # sidecarContainers:
+  # - name: istio-proxy
+  #   lifecycle:
+  #     preStop:
+  #       exec:
+  #         command: ["/bin/sh", "-c", "while [ $(netstat -plunt | grep tcp | grep 8083 | wc -l | xargs) -ne 0 ]; do printf 'Waiting for Historical Server to shutdown'; sleep 1; done; echo 'Historical Server shutdown, shutting down proxy...'"]
+  # Probes are already enabled by default. Use the following 
+  # section to override probe configurations.
+  # readinessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # livenessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # startupProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 90
+
+dataTier2:
+  replicaCount: 0
+  resources:
+    requests:
+      cpu: 400m
+      memory: 1300M
+    # limits:
+    #   cpu:
+    #   memory:
+  persistence:
+    # If persistence is disabled, extraVolumes or extraVolumeClaimTemplates should 
+    # be configured with the names:
+    # - var - for the segment cache
+    # - tmp - for the temp directory
+    enabled: true
+  segmentCacheVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 20Gi
+    selector: {}
+  tmpVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 10Gi
+    selector: {}
+  headlessService:
+    extraPorts: []
+  extraVolumeClaimTemplates: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraPorts: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  annotations: {}
+  labels: {}
+  serviceAccountName: ""
+  schedulerName: ""
+  # Updates vm.max_map_count to the specified value.
+  sysctlInitContainer:
+    enabled: true
+    sysctlVmMaxMapCount: 500000
+    sysctlKernelThreadsMax: 999999
+  podDisruptionBudget:
+    maxUnavailable: 1
+  securityContext:
+    fsGroup: 1001
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+  tmpVolumeName: tmp
+  tmpVolumeSubpath: ""
+  varVolumeName: var
+  varVolumeSubpath: ""
+  # Probes are already enabled by default. Use the following 
+  # section to override probe configurations.
+  # readinessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # livenessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # startupProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 90
+
+dataTier3:
+  replicaCount: 0
+  resources:
+    requests:
+      cpu: 400m
+      memory: 1300M
+    # limits:
+    #   cpu:
+    #   memory:
+  persistence:
+    # If persistence is disabled, extraVolumes or extraVolumeClaimTemplates should 
+    # be configured with the names:
+    # - var - for the segment cache
+    # - tmp - for the temp directory
+    enabled: true
+  segmentCacheVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 20Gi
+    selector: {}
+  tmpVolume:
+    storageClassName:
+    resources:
+      requests:
+        storage: 10Gi
+    selector: {}
+  headlessService:
+    extraPorts: []
+  extraVolumeClaimTemplates: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraPorts: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  annotations: {}
+  labels: {}
+  serviceAccountName: ""
+  schedulerName: ""
+  # Updates vm.max_map_count to the specified value.
+  sysctlInitContainer:
+    enabled: true
+    sysctlVmMaxMapCount: 500000
+    sysctlKernelThreadsMax: 999999
+  podDisruptionBudget:
+    maxUnavailable: 1
+  securityContext:
+    fsGroup: 1001
+  containerSecurityContext: {}
+  # To enable iptables on the container uncomment below
+    # capabilities:
+    #   add: ["NET_ADMIN"]
+  tmpVolumeName: tmp
+  tmpVolumeSubpath: ""
+  varVolumeName: var
+  varVolumeSubpath: ""
+  # Probes are already enabled by default. Use the following 
+  # section to override probe configurations.
+  # readinessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # livenessProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 3
+  # startupProbe:
+  #   periodSeconds: 10
+  #   timeoutSeconds: 10
+  #   successThreshold: 1
+  #   failureThreshold: 90
+
+additionalDataTiers:
+- replicaCount: 0
+  # all custom values that apply to dataTier1/dataTier2/dataTier3 can also be applied here
+  customMiddleManagerRuntimeProperties: []
+  customHistoricalRuntimeProperties: []
+# ------------------------------------------------------------------------------
+# Zookeeper
+# ------------------------------------------------------------------------------
+zookeeper:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+  env:
+    ZK_HEAP_SIZE: "512M"
+    ZK_PURGE_INTERVAL: 1
+    ZOO_AUTOPURGE_PURGEINTERVAL: 1
+
+# ------------------------------------------------------------------------------
+# MySQL
+# ------------------------------------------------------------------------------
+mysql:
+  persistence:
+    enabled: true
+  mysqlRootPassword: imply
+  imageTag: "5.7.39"
+
+# ------------------------------------------------------------------------------
+# MinIO
+# ------------------------------------------------------------------------------
+minio:
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  defaultBucket:
+    enabled: true
+    name: imply
+  accessKey: imply
+  secretKey: implypassword

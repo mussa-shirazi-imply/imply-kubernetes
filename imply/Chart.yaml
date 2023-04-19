@@ -1,0 +1,27 @@
+apiVersion: v2
+appVersion: 2023.03.1
+dependencies:
+- condition: deployments.zookeeper
+  name: zookeeper
+  repository: https://static.imply.io/onprem/helm/
+  version: 3.2.0
+- condition: deployments.mysql
+  name: mysql
+  repository: https://charts.helm.sh/stable
+  version: 1.5.0
+- condition: deployments.minio
+  name: minio
+  repository: https://charts.helm.sh/stable
+  version: 5.0.16
+description: Imply Manager
+home: https://imply.io
+icon: https://static.imply.io/imply-arrow.svg
+keywords:
+- druid
+- imply
+kubeVersion: '>=1.19-0'
+maintainers:
+- email: contact@imply.io
+  name: Imply
+name: imply
+version: 2023.03.1

@@ -1,0 +1,16 @@
+{{- if .Values.query.configFiles -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "imply.query.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.query.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+data:
+{{- range $path, $val := .Values.query.configFiles }}
+  {{ $path | replace "/" "-" | replace "." "-" }}: |
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}

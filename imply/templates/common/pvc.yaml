@@ -1,0 +1,18 @@
+{{- $volumeClaim := .Values.volumeClaim | default dict -}}
+{{- if and .Values.deployments.agents $volumeClaim.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "imply.storage.fullname" . }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  resources:
+    {{- toYaml .Values.volumeClaim.resources | nindent 4 }}
+  storageClassName: {{ .Values.volumeClaim.storageClassName }}
+  {{- with .Values.volumeClaim.selector }}
+  selector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

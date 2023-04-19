@@ -1,0 +1,36 @@
+{{ $tierDict := dict "dataTierValues" .Values.dataTier1 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier1" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier1.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier1.fullname" .) -}}
+{{ include "imply.data.configMap" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier2 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier2" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier2.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier2.fullname" .) -}}
+{{ include "imply.data.configMap" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier3 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier3" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier3.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier3.fullname" .) -}}
+{{ include "imply.data.configMap" (merge (dict) . $tierDict) }}
+---
+{{- define "imply.data.configMap" -}}
+{{- if and .Values.deployments.agents (gt (.dataTierValues.replicaCount | int64) 0) .dataTierValues.configFiles -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .dataTierFullName }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .dataTierValues.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+data:
+{{- range $path, $val := .dataTierValues.configFiles }}
+  {{ $path | replace "/" "-" | replace "." "-" }}: |
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end -}}

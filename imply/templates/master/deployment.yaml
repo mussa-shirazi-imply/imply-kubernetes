@@ -1,0 +1,227 @@
+{{- if and .Values.deployments.agents (gt (.Values.master.replicaCount | int64) 0) -}}
+{{- $volumeClaim := .Values.volumeClaim | default dict -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "imply.master.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.master.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  replicas: {{ .Values.master.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "imply.master.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.master.strategy }}
+  strategy:
+    {{- toYaml .Values.master.strategy | nindent 4 }}
+{{- end }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "imply.master.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        imply.io/resource: "true"
+      {{- with .Values.master.labels }}
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .Values.master.annotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+    spec:
+    {{- with .Values.master.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.agents.terminationGracePeriodSeconds }}
+    {{- with .Values.images.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.master.serviceAccountName }}
+      serviceAccountName: {{ .Values.master.serviceAccountName }}
+    {{- end }}
+    {{- if .Values.master.schedulerName }}
+      schedulerName: {{ .Values.master.schedulerName }}
+    {{- end }}
+      containers:
+        - name: {{ include "imply.chart.name" . }}
+          image: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+        {{- with .Values.master.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+          env:
+            - name: "POD_NAME"
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: "POD_NAMESPACE"
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: IMPLY_MANAGER_HOST
+              value: "{{ tpl .Values.agents.managerHost . }}"
+            - name: IMPLY_MANAGER_AGENT_CLUSTER
+              value: {{ .Values.agents.clusterName }}
+            - name: IMPLY_SKIP_JAVA_CHECK
+              value: "1"
+            - name: IMPLY_MANAGER_AGENT_NODE_TYPE
+              value: master
+          {{- if .Values.security.tls }}
+            - name: IMPLY_MANAGER_CA_CERT_PATH
+              value: /etc/imply/ca/tls.crt
+          {{- end }}
+          {{- if .Values.security.auth }}
+            - name: IMPLY_MANAGER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.auth.secretName }}
+                  key: auth-token
+          {{- end }}
+            - name: druid_common_runtime_druid_host
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          {{- range $key, $val := .Values.master.secrets }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "imply.master.fullname" $ }}
+                  key: {{ $key }}
+          {{- end }}
+          {{- with .Values.master.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          ports:
+            - name: coordinator
+              containerPort: 8081
+            - name: coordinator-tls
+              containerPort: 8281
+            - name: overlord
+              containerPort: 8090
+            - name: overlord-tls
+              containerPort: 8290
+          {{- if .Values.master.extraPorts }}
+            {{- toYaml .Values.master.extraPorts | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - mountPath: "/mnt/var"
+              name: var-volume
+          {{ range $path, $bytes := .Files.Glob "scripts/*" }}
+            - mountPath: {{ printf "/root/%s" (base $path) }}
+              name: scripts
+              subPath: {{ base $path }}
+          {{- end }}
+          {{- if .Files.Glob "scripts/run-druid" }}
+            - mountPath: /run-druid
+              name: scripts
+              subPath: run-druid
+          {{- end }}
+          {{- if .Files.Glob "scripts/handle-coredump" }}
+            - mountPath: /handle-coredump
+              name: scripts
+              subPath: handle-coredump
+          {{- end }}
+          {{- if .Values.security.tls }}
+            - mountPath: "/etc/imply/ca"
+              name: ca-secrets
+              readOnly: true
+          {{- end }}
+          {{- if $volumeClaim.enabled }}
+            - mountPath: {{ .Values.volumeClaim.mountPath }}
+              name: deep-storage
+          {{- end }}
+          {{- range $path, $val := .Values.master.configFiles }}
+            - mountPath: /{{ $path }}
+              subPath: {{ $path | replace "/" "-" | replace "." "-" }}
+              name: config-files
+          {{- end }}
+          {{- range $path, $val := .Values.master.secretConfigFiles }}
+            - mountPath: /{{ $path }}
+              subPath: {{ $path | replace "/" "-" | replace "." "-" }}
+              name: secrets
+          {{- end }}
+          {{- with .Values.master.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          livenessProbe:
+{{ merge (default .Values.master.livenessProbe dict) (include "imply.probe.livenessProbe" . | fromYaml) | toYaml | indent 12 }}
+          startupProbe:
+{{ merge (default .Values.master.startupProbe dict) (include "imply.probe.startupProbe" . | fromYaml) | toYaml | indent 12 }}
+          readinessProbe:
+{{ merge (default .Values.master.readinessProbe dict) (include "imply.probe.readinessProbe" . | fromYaml) | toYaml | indent 12 }}
+          resources:
+            {{- toYaml .Values.master.resources | nindent 12 }}
+
+      volumes:
+        - name: var-volume
+          emptyDir: {}
+        {{- if .Values.master.configFiles }}
+        - name: config-files
+          configMap:
+            name: {{ include "imply.master.fullname" . }}
+        {{- end }}
+        {{- if .Values.master.secretConfigFiles }}
+        - name: secrets
+          secret:
+            secretName: {{ include "imply.master.fullname" . }}
+        {{- end }}
+        - name: scripts
+          configMap:
+            name: {{ include "imply.scripts.fullname" . }}
+            defaultMode: 0777
+      {{- if .Values.security.tls }}
+        - name: ca-secrets
+          secret:
+            secretName: {{ .Values.security.tls.secretName }}
+            items:
+              - key: tls.crt
+                path: tls.crt
+      {{- end }}
+      {{- if $volumeClaim.enabled }}
+        - name: deep-storage
+          persistentVolumeClaim:
+            claimName: {{ include "imply.storage.fullname" . }}
+      {{- end }}
+      {{- with .Values.master.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.master.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.master.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.master.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.master.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.master.topologySpreadConstraints }}
+      topologySpreadConstraints:
+      {{- range $constraint := .Values.master.topologySpreadConstraints }}
+      - {{ $constraint | toYaml | indent 8 | trim }}
+        {{ if not $constraint.labelSelector -}}
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: {{ include "imply.master.name" $ }}
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}

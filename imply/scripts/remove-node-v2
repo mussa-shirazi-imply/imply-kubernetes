@@ -1,0 +1,248 @@
+#!/bin/bash -u
+WHEREAMI="$(dirname "${BASH_SOURCE:-$0}")"
+# shellcheck source=get-keycloak-token
+source "$WHEREAMI/get-keycloak-token"
+
+# Imply Agent Remove Node Script
+# 
+# This script is called whenever a data node pod is terminated. This script attempts to
+# remove the node in a graceful manner and will retry failed connections.
+#
+# First the script will try to disable the Middle Manager. Once that has completed
+# successfully it will wait for all tasks running on the Middle Manager to complete.
+# Finally it will wait for segment load queues to empty (or near empty) before allowing
+# the node to be terminated.
+#
+# If any errors are encountered we will continue to retry for up to 5 minutes, but any
+# successful response will reset and we can fail for up to 5 minutes again.
+
+# ---------
+# Syslog
+# Interferes with bats, so don't set if sourced.
+(return 0 2>/dev/null) || exec 1> >(logger -s -t "[$(basename "$0")]" 2>&1)
+(return 0 2>/dev/null) || exec 2> >(logger -s -t "[$(basename "$0")]")
+
+# ---------
+# Functions
+usage() {
+  echo "Usage: $0 [-hs] [-m <string>] [-p <int>] [-c <string>] [-a <string>]" 1>&2;
+  for msg in "$@"; do
+    echo "$msg" 1>&2
+  done
+
+  exit 1
+}
+
+doCurl() {
+  local PARAMS=(-s -X "$1")
+  [ -n "$AUTH" ] && PARAMS+=(-u "imply:$AUTH")
+  if [ "${KEYCLOAK_HOST:-}" ]
+  then
+    token=$(getToken)
+    PARAMS+=(-H "Authorization: Bearer $token")
+  fi
+  PARAMS+=("${BASE_URI}/$2")
+  curl "${PARAMS[@]}"
+}
+
+doUntil() {
+  local maxSuccessiveFailures sleepTime failureCount response status
+  maxSuccessiveFailures="$1"
+  sleepTime="$2"
+  failureCount=0
+  shift 2
+
+  while true; do
+    sleep "$sleepTime"
+
+    if response="$("$@")"; then
+      status="$(echo "$response" | jq -rj ".status" 2>/dev/null)"
+
+      if [ "$status" == "COMPLETED" ]; then
+        printf "Completed: [%s]\n" "$*"
+        break
+      elif [ "$status" == "NOT_RUNNING" ]; then
+        echo "Cluster is not running, skipping checks"
+        exit 0
+      elif [ "$status" == "HARD_UPDATE" ]; then
+        echo "Cluster is performing a hard update, skipping checks"
+        exit 0
+      elif [ "$status" != "PENDING" ]; then
+        printf "Unknown response: [%s]\n" "$response"
+      else
+        printf "Waiting: [%s]\n" "$*"
+        failureCount=0
+        continue
+      fi
+    elif [ $? == 3 ]; then
+      # Manager does not support the new API endpoints, fallback to old remove node functionality.
+      local -a args=(-c "${CLUSTERID}")
+      if [ "$HTTPS" = true ]; then
+        args+=(-s)
+      fi
+      /root/remove-node "${args[@]}" >/dev/null 2>&1
+      exit $?
+    else
+      echo "$response"
+    fi
+
+    if [ "$((++failureCount))" -ge "$maxSuccessiveFailures" ]; then
+      return 1
+    fi
+  done
+}
+
+doUntilLeader() {
+  local maxSuccessiveFailures sleepTime failureCount response safeToTerminate
+  maxSuccessiveFailures="$1"
+  sleepTime="$2"
+  failureCount=0
+  shift 2
+
+  while true; do
+    sleep "$sleepTime"
+
+    if response="$("$@")"; then
+      safeToTerminate="$(echo "$response" | jq -rj ".safeToTerminate" 2>/dev/null)"
+
+      if [ "$safeToTerminate" == "true" ]; then
+        printf "I am the leader, continuing termination\n"
+        break
+      elif [ "$safeToTerminate" == "false" ]; then
+        printf "Waiting for leader to terminate\n"
+        failureCount=0
+        continue
+      else
+        printf "Unknown response: [%s]\n" "$response"
+      fi
+    elif [ $? == 3 ]; then
+      printf "Manager does not support the safeToTerminate API endpoint, continue without waiting for leader\n"
+      return 0
+    else
+      echo "$response"
+    fi
+
+    if [ "$((++failureCount))" -ge "$maxSuccessiveFailures" ]; then
+      printf "Max successive failures reached, continuing without waiting for leader\n"
+      return 1
+    fi
+  done
+}
+
+doApi() {
+  local response error verb path
+  verb="$1"
+  path="$2"
+
+  if ! response="$(doCurl "$verb" "$path")"; then
+    printf "Request failed: [%s]\n" "$response"
+    return 1
+  fi
+  error="$(echo "$response" | jq -rj ".error" 2>/dev/null)"
+
+  if [ "$error" != "null" ]; then
+    if [[ "$error" == "The URI ["* ]]; then
+      return 3
+    else
+      printf "Request returned an error: [%s]\n" "$error"
+      return 2
+    fi
+  fi
+
+  echo "$response"
+}
+
+# ---------
+# Variables
+TOKEN_FILE="remove-node-keycloak.json"
+SCHEMA="http"
+MANAGER=${IMPLY_MANAGER_HOST-""}
+MANAGER_PORT=${IMPLY_MANAGER_BE_PORT:-9989}
+CLUSTERID=${IMPLY_MANAGER_AGENT_CLUSTER:-""}
+HTTPS=false
+AUTH="${IMPLY_MANAGER_AUTH_TOKEN:-""}"
+SKIP_MIDDLE_MANAGER_CHECK="${IMPLY_SKIP_MIDDLE_MANAGER_CHECK:-false}"
+PODNAME=$(hostname)
+
+# ---------
+# CLI Options
+while getopts ":n:m:p:c:a:sh" o; do
+  case "${o}" in
+    n)
+      HOST="${OPTARG}"
+      ;;
+    m)
+      MANAGER="${OPTARG}"
+      ;;
+    p)
+      MANAGER_PORT="${OPTARG}"
+      ;;
+    c)
+      CLUSTERID="${OPTARG}"
+      ;;
+    a)
+      AUTH="${OPTARG}"
+      ;;
+    s)
+      HTTPS=true
+      ;;
+    h | *)
+      usage
+  esac
+done
+
+# ---------
+# Validation
+validate_args() {
+  if [ -z "${HOST:-""}" ] && ! HOST=$(curl -s localhost:9997/health | jq -rj '.name' 2>/dev/null) || [ -z "$HOST" ] || [ "$HOST" == "null" ]; then
+    usage "Could not determine name, specify with -n"
+  elif [ -z "$MANAGER" ]; then
+    usage "Unable to detect manager, specify with -m."
+  elif [ -z "$CLUSTERID" ]; then
+    usage "Unable to detect cluster, specify with -c."
+  elif [ "$MANAGER_PORT" -le 0 ] || [ "$MANAGER_PORT" -gt 65535 ]; then
+    usage "Port must be between 1-65535"
+  fi
+}
+
+# ---------
+# Initialization
+initialize() {
+  if [ "${HTTPS}" = true ]; then
+    SCHEMA="https"
+  fi
+
+  BASE_URI="${SCHEMA}://${MANAGER}:${MANAGER_PORT}"
+}
+
+# ---------
+# Script
+main() {
+  # Singleton
+  (
+    flock -n 200 || {
+      echo "Remove node is already running"
+      exit 2
+    }
+
+    validate_args && initialize
+
+    doUntilLeader 30 5 doApi "GET" "kubernetes/v1/${CLUSTERID}/safeToTerminate/${PODNAME}"
+
+    if [ "${SKIP_MIDDLE_MANAGER_CHECK}" = false ]; then
+      # Disable Middle Manager
+      echo "Disabling Middle Manager"
+      doUntil 30 10 doApi "POST" "druid/v1/${CLUSTERID}/worker/${HOST}/disable"
+
+      echo "Waiting for tasks to complete"
+      doUntil 30 10 doApi "GET" "druid/v1/${CLUSTERID}/worker/${HOST}/tasks"
+    fi
+
+    echo "Waiting for segment replication"
+    doUntil 30 10 doApi "GET" "druid/v1/${CLUSTERID}/coordinator/loadstatus?startTime=$(date +%s000)"
+
+  ) 200>/tmp/remove-node-v2.lock
+}
+
+# only run if not sourced to support tests.
+(return 0 2>/dev/null) || main

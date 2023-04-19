@@ -1,0 +1,34 @@
+{{- if and .Values.deployments.manager .Values.manager.service.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "imply.manager.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+  {{- with .Values.manager.service.labels }}
+{{ toYaml . | indent 4 }}
+  {{- end }}
+  {{- with .Values.manager.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.manager.service.type }}
+  {{- if .Values.manager.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.manager.service.loadBalancerIP }}
+  {{- end }}
+  ports:
+    - name: manager-fe
+      protocol: {{ .Values.manager.service.protocol }}
+      port: {{ tpl (.Values.manager.service.port | toString) . }}
+      {{- if .Values.manager.service.nodePort }}
+      nodePort: {{ .Values.manager.service.nodePort }}
+      {{- end }}
+      targetPort: manager-fe
+    {{- if .Values.manager.service.extraPorts }}
+{{- toYaml .Values.manager.service.extraPorts | nindent 4 }}
+    {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ include "imply.manager.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

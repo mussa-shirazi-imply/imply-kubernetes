@@ -1,0 +1,196 @@
+#!/bin/bash -u
+
+# ---------
+# Syslog
+exec 1> >(logger -s -t "[$(basename $0)]" 2>&1)
+exec 2> >(logger -s -t "[$(basename $0)]")
+
+# ---------
+# Singleton
+exec 200>/mnt/var/remove-node.lock
+flock -n 200 || {
+  echo "Remove node is already running"
+  exit 2
+}
+
+# ---------
+# Functions
+usage() {
+  echo "Usage: $0 [-hs] [-m <string>] [-p <int>] [-c <string>] [-a <string>]" 1>&2;
+  for msg in "$@"; do
+    echo "$msg" 1>&2
+  done
+
+  exit 1
+}
+
+post() {
+  local PARAMS=(-s -X POST -H "$CONTENT_JSON" -d "$1")
+  [ -n "$AUTH" ] && PARAMS+=(-u "imply:$AUTH")
+  PARAMS+=("$ACTION_URI")
+  curl "${PARAMS[@]}"
+}
+
+check_node_removed() {
+  if ! RESPONSE=$(post "$DESCRIBE_CLUSTER_PAYLOAD"); then
+    return 1
+  elif ! ID="$(echo "$RESPONSE" | jq -rj ".[0]" 2>/dev/null)"; then
+    return 2
+  elif [ "$ID" == "$HOST" ]; then
+    return 0
+  else
+    return 3
+  fi
+}
+
+# ---------
+# Constants
+SCHEMA="http"
+CONTENT_JSON="Content-Type: application/json"
+
+# ---------
+# Variables
+MANAGER=${IMPLY_MANAGER_HOST-""}
+MANAGER_PORT=${IMPLY_MANAGER_BE_PORT:-9989}
+CLUSTERID=${IMPLY_MANAGER_AGENT_CLUSTER:-""}
+HTTPS=false
+AUTH="${IMPLY_MANAGER_AUTH_TOKEN:-""}"
+
+# ---------
+# CLI Options
+while getopts ":n:m:p:c:a:sh" o; do
+  case "${o}" in
+    n)
+      HOST=${OPTARG}
+      ;;
+    m)
+      MANAGER=${OPTARG}
+      ;;
+    p)
+      MANAGER_PORT=${OPTARG}
+      ;;
+    c)
+      CLUSTERID=${OPTARG}
+      ;;
+    a)
+      AUTH=${OPTARG}
+      ;;
+    s)
+      HTTPS=true
+      ;;
+    h | *)
+      usage
+  esac
+done
+
+# ---------
+# Validation
+if [ -z "${HOST:-""}" ] && ! HOST=$(curl -s localhost:9997/health | jq -rj '.name' 2>/dev/null) || [ -z "$HOST" ] || [ "$HOST" == "null" ]; then
+  usage "Could not determine name, specify with -n"
+elif [ -z "$MANAGER" ]; then
+  usage "Unable to detect manager, specify with -m."
+elif [ -z "$CLUSTERID" ]; then
+  usage "Unable to detect cluster, specify with -c."
+elif [ "$MANAGER_PORT" -le 0 ] || [ "$MANAGER_PORT" -gt 65535 ]; then
+  usage "Port must be between 1-65535"
+fi
+
+# ---------
+# Initialization
+if [ "${HTTPS}" = true ]; then
+  SCHEMA="https"
+fi
+
+ACTION_URI="${SCHEMA}://${MANAGER}:${MANAGER_PORT}/manager/v1/action"
+
+REMOVE_NODE_PAYLOAD=$(cat <<EOT
+{
+  "type": "updateClusterAgents",
+  "clusterId": "$CLUSTERID",
+  "hosts": ["$HOST"]
+}
+EOT
+)
+DESCRIBE_CLUSTER_PAYLOAD=$(cat <<EOT
+{
+  "type": "describeClusterReplaceableAgents",
+  "clusterId": "$CLUSTERID"
+}
+EOT
+)
+
+# ---------
+# Script
+
+# Removing node
+echo "Removing node"
+FAILURE_COUNT=0
+while true; do
+  if ! RESPONSE=$(post "$REMOVE_NODE_PAYLOAD"); then
+    ((FAILURE_COUNT++))
+    echo "Failed to query manager, retrying..."
+  else
+    ERROR=$(echo "$RESPONSE" | jq -rj '.error' 2>/dev/null)
+    ID=$(echo "$RESPONSE" | jq -rj '.clusterId' 2>/dev/null)
+    if [[ "$ERROR" == "Invalid state change"* ]]; then
+      FAILURE_COUNT=0
+      if [[ "$ERROR" == *"CLUSTER_STOPPED"* || "$ERROR" == *"DELETING_CLUSTER_STACK"* || "$ERROR" == *"CLUSTER_CREATION_FAILED"* || "$ERROR" == *"UPDATING_CLUSTER_STACK"* ]]; then
+        echo "Cluster is stopped"
+        exit 0
+      # sometimes this command gets reran, double check that we are not the node being removed right now.
+      elif check_node_removed; then
+        echo "Node removed successfully!"
+        exit 0
+      fi
+      echo "Another update is happening, retrying..."
+    elif [ "$ERROR" != "null" ]; then
+      # If we get here either updateClusterAgents is not supported by the manager OR the node is no longer registered
+      # Either way we cannot cleanly shutdown the node, so just let k8s take over.
+      echo "An error has occurred, exiting!"
+      echo "$ERROR"
+      exit 1
+    elif [ "$ID" == "$CLUSTERID" ]; then
+      echo "Node is shutting down"
+      break
+    else
+      ((FAILURE_COUNT++))
+      echo "Invalid response from manager, retrying..."
+      echo "$RESPONSE"
+    fi
+  fi
+
+  if [ $FAILURE_COUNT -ge 3 ]; then
+    echo "Too many errors, aborting!"
+    exit
+  fi
+
+  sleep 10
+done
+
+# Wait for node to be removed
+echo "Waiting for removal to complete..."
+FAILURE_COUNT=0
+while true; do
+  check_node_removed
+  retVal=$?
+  if [ $retVal -eq 1 ]; then
+    ((FAILURE_COUNT++))
+    echo "Failed to query manager, retrying..."
+  elif [ $retVal -eq 2 ]; then
+    ((FAILURE_COUNT++))
+    echo "Unknown response, retrying"
+  elif [ $retVal -eq 3 ]; then
+    FAILURE_COUNT=0
+    echo "Node still registered, waiting"
+  else
+    echo "Node removed successfully!"
+    break
+  fi
+
+  if [ $FAILURE_COUNT -ge 3 ]; then
+    echo "Too many errors, aborting!"
+    exit
+  fi
+
+  sleep 10
+done

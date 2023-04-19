@@ -1,0 +1,45 @@
+#!/bin/bash -u
+
+# Imply Cloud Agent Readiness Check Script
+# 
+# This script acts as a middle layer betwen Kubernetes probes and druid services. This script
+# is required because a single pod could have multiple druid services running on it.
+# Kubernetes periodically runs probes for pod liveness and readiness.  In the event that a
+# probe fails, Kubernetes will attempt to remidate the issue based on the probe type.
+#
+#   Readiness probe type: Kubernetes stops directing traffic to the pod
+
+# ---------
+# Syslog
+# Interferes with bats, so don't set if sourced.
+(return 0 2>/dev/null) || exec 1> >(logger -s -t "[agent-readiness]" 2>&1)
+(return 0 2>/dev/null) || exec 2> >(logger -s -t "[agent-readiness]")
+
+get() {
+  local PARAMS=(-s -k --fail --write-out '%{http_code}' --output /dev/null "$1")
+  curl "${PARAMS[@]}"
+}
+
+# ---------
+# Variables
+PROBE_CONFIG="/opt/grove/.stage/sv/imply/probe"
+
+# ---------
+# Script
+main() {
+  if [ ! -f "$PROBE_CONFIG" ]; then
+    echo "$PROBE_CONFIG does not exist, agent must not be ready"
+    exit 1
+  fi
+
+  # Perform readiness checks
+  jq -r 'values[] | .[]  | "\(.scheme)://\(.host):\(.port)\(.path)"' "${PROBE_CONFIG}" | while read -r endpoint; do
+    if ! STATUS=$(get "${endpoint}"); then
+      echo "Host [${endpoint}] is not ready, status code [${STATUS}]"
+      exit 1
+    fi
+  done
+}
+
+# only run if not sourced to support tests.
+(return 0 2>/dev/null) || main

@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "imply.query.fullname" . }}-headless
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.query.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  ports:
+    - port: 8082
+      targetPort: broker
+      name: tcp-broker
+    - port: 8282
+      targetPort: broker-tls
+      name: tcp-broker-tls
+    - port: 8888
+      targetPort: router
+      name: tcp-router
+    - port: 9088
+      targetPort: router-tls
+      name: tcp-router-tls
+    - port: 9095
+    {{- if .Values.query.pivotTargetPortOverride }}
+      targetPort: {{ .Values.query.pivotTargetPortOverride }}
+    {{- else }}
+      targetPort: pivot
+    {{- end }}
+      name: tcp-pivot
+{{- with .Values.query.headlessService.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ include "imply.query.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}

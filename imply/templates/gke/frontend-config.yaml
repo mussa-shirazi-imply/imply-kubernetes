@@ -1,0 +1,9 @@
+{{- if and .Values.manager.kubernetesMode .Values.manager.ingress.enabled -}}
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: {{ include "imply.fullname" . }}
+spec:
+  redirectToHttps:
+    enabled: true
+{{- end }}

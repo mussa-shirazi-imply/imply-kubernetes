@@ -1,0 +1,57 @@
+{{ $tierDict := dict "dataTierValues" .Values.dataTier1 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier1" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier1.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier1.fullname" .) -}}
+{{ include "imply.data.service-internal" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier2 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier2" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier2.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier2.fullname" .) -}}
+{{ include "imply.data.service-internal" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier3 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier3" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier3.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier3.fullname" .) -}}
+{{ include "imply.data.service-internal" (merge (dict) . $tierDict) }}
+---
+{{- define "imply.data.service-internal" -}}
+{{- if and .Values.deployments.agents (gt (.dataTierValues.replicaCount | int64) 0) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .dataTierFullName }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .dataTierValues.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  ports:
+    - port: 8083
+      targetPort: historical
+      name: tcp-historical
+    - port: 8283
+      targetPort: historical-tls
+      name: tcp-historical-tls
+    - port: 8091
+      targetPort: mm
+      name: tcp-mm
+    - port: 8291
+      targetPort: mm-tls
+      name: tcp-mm-tls
+{{- if .dataTierValues.headlessService }}
+{{- with .dataTierValues.headlessService.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}
+  clusterIP: None
+{{- if .Values.publishNotReadyAddresses }}
+  publishNotReadyAddresses: true
+{{- end }}
+  selector:
+    app.kubernetes.io/name: {{ .dataTierName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end -}}

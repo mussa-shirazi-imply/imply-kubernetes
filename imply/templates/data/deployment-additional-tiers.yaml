@@ -1,0 +1,19 @@
+{{- $scope := .  }}
+{{- range $i, $additionalDataTier := .Values.additionalDataTiers }}
+---
+{{ $tier := toString (add $i 4) }}
+{{- $tierDict := dict "dataTierValues" $additionalDataTier -}}
+{{- $_ := set $tierDict "dataTierType" "data" -}}
+{{- $_ := set $tierDict "dataTierName" (printf "%s-data-%s" (include "imply.name" $) $tier) -}}
+{{- $_ := set $tierDict "dataTierFullName" (printf "%s-data-%s" (include "imply.fullname" $) $tier) -}}
+{{- $_ := set $tierDict "dataTierTier" $tier -}}
+{{ include "imply.data.deployment" (merge $tierDict $scope)  }}
+---
+{{ include "imply.data.service-internal" (merge $tierDict $scope)  }}
+---
+{{ include "imply.data.podDisruptionBudget" (merge $tierDict $scope)  }}
+---
+{{ include "imply.data.configMap" (merge $tierDict $scope)  }}
+---
+{{ include "imply.data.secrets" (merge $tierDict $scope)  }}
+{{- end -}}

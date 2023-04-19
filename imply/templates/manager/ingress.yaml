@@ -1,0 +1,38 @@
+{{- $managerFullName := include "imply.manager.fullname" . -}}
+{{- if .Values.manager.ingress.enabled -}}
+apiVersion: "networking.k8s.io/v1"
+kind: Ingress
+metadata:
+  name: {{ include "imply.manager.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+  {{- with .Values.manager.ingress.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  rules:
+    - http:
+        paths:
+    {{- if .Values.manager.ingress.extraPaths }}
+{{ toYaml .Values.manager.ingress.extraPaths | indent 10 }}
+    {{- end }}
+    {{- if .Values.manager.ingress.paths }}
+    {{- range .Values.manager.ingress.paths }}
+          - path: {{ . }}
+            pathType: {{ $.Values.manager.ingress.pathType }}
+            backend:
+              service:
+                name: {{ $managerFullName }}
+                port:
+                  name: manager-fe
+    {{- end }}
+    {{- end }}
+    {{- if .Values.manager.ingress.host }}
+      host: {{ .Values.manager.ingress.host }}
+    {{- end }}
+  {{- if .Values.manager.ingress.tls }}
+  tls:
+{{ toYaml .Values.manager.ingress.tls | indent 4 }}
+  {{- end }}
+{{- end }}

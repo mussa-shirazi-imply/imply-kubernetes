@@ -1,0 +1,310 @@
+{{ $tierDict := dict "dataTierValues" .Values.dataTier1 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier1" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier1.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier1.fullname" .) -}}
+{{ include "imply.data.deployment" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier2 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier2" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier2.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier2.fullname" .) -}}
+{{ include "imply.data.deployment" (merge (dict) . $tierDict) }}
+---
+{{ $tierDict := dict "dataTierValues" .Values.dataTier3 }}
+{{- $_ := set $tierDict "dataTierType" "dataTier3" -}}
+{{- $_ := set $tierDict "dataTierName" (include "imply.dataTier3.name" .) -}}
+{{- $_ := set $tierDict "dataTierFullName" (include "imply.dataTier3.fullname" .) -}}
+{{ include "imply.data.deployment" (merge (dict) . $tierDict) }}
+---
+{{- define "imply.data.deployment" -}}
+{{- if and .Values.deployments.agents (gt (.dataTierValues.replicaCount | int64) 0) -}}
+{{- $volumeClaim := .Values.volumeClaim | default dict -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .dataTierFullName }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .dataTierValues.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  replicas: {{ .dataTierValues.replicaCount }}
+  serviceName: {{ .dataTierFullName }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .dataTierName }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .dataTierName }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        imply.io/resource: "true"
+      {{- with .dataTierValues.labels }}
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .dataTierValues.annotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+    spec:
+    {{- with .dataTierValues.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.agents.terminationGracePeriodSeconds }}
+    {{- with .Values.images.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .dataTierValues.serviceAccountName }}
+      serviceAccountName: {{ .dataTierValues.serviceAccountName }}
+    {{- end }}
+    {{- if .dataTierValues.schedulerName }}
+      schedulerName: {{ .dataTierValues.schedulerName }}
+    {{- end }}
+    {{- if .dataTierValues.sysctlInitContainer.enabled }}
+      initContainers:
+      - name: configure-sysctl
+        securityContext:
+          runAsUser: 0
+          privileged: true
+        image: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+        imagePullPolicy: "{{ .Values.images.pullPolicy }}"
+        command:
+        - sh
+        - -c
+        - |
+          #!/bin/bash -eu
+      {{- if .dataTierValues.sysctlInitContainer.sysctlVmMaxMapCount }}
+          sysctl -w "vm.max_map_count={{ .dataTierValues.sysctlInitContainer.sysctlVmMaxMapCount }}"
+      {{- end }}
+      {{- if .dataTierValues.sysctlInitContainer.sysctlKernelThreadsMax }}
+          sysctl -w "kernel.threads-max={{ .dataTierValues.sysctlInitContainer.sysctlKernelThreadsMax }}"
+      {{- end }}
+    {{- end }}
+      containers:
+        - name: {{ include "imply.chart.name" . }}
+          image: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+        {{- with .dataTierValues.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+          env:
+            - name: "POD_NAME"
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: "POD_NAMESPACE"
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: IMPLY_MANAGER_HOST
+              value: "{{ tpl .Values.agents.managerHost . }}"
+            - name: IMPLY_MANAGER_AGENT_CLUSTER
+              value: {{ .Values.agents.clusterName }}
+            - name: IMPLY_SKIP_JAVA_CHECK
+              value: "1"
+            - name: IMPLY_MANAGER_AGENT_NODE_TYPE
+              value: {{ .dataTierType }}
+          {{- if .dataTierTier }}
+            - name: NODE_TIER_VALUE
+              value: {{ .dataTierTier | quote }}
+          {{- end }}
+          {{- if .Values.security.tls }}
+            - name: IMPLY_MANAGER_CA_CERT_PATH
+              value: /etc/imply/ca/tls.crt
+          {{- end }}
+          {{- if .Values.security.auth }}
+            - name: IMPLY_MANAGER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.auth.secretName }}
+                  key: auth-token
+          {{- end }}
+            - name: druid_common_runtime_druid_host
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          {{- range $key, $val := .dataTierValues.secrets }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.dataTierFullName }}
+                  key: {{ $key }}
+          {{- end }}
+          {{- with .dataTierValues.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          ports:
+            - name: historical
+              containerPort: 8083
+            - name: historical-tls
+              containerPort: 8283
+            - name: mm
+              containerPort: 8091
+            - name: mm-tls
+              containerPort: 8291
+          {{- with .dataTierValues.extraPorts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - mountPath: "/mnt/var"
+              name: {{ ternary "var" .dataTierValues.varVolumeName (empty .dataTierValues.varVolumeName) }}
+              subPath: {{ .dataTierValues.varVolumeSubpath }}
+            - mountPath: "/mnt/tmp"
+              name: {{ ternary "tmp" .dataTierValues.tmpVolumeName (empty .dataTierValues.tmpVolumeName) }}
+              subPath: {{ .dataTierValues.tmpVolumeSubpath }}
+          {{ range $path, $bytes := .Files.Glob "scripts/*" }}
+            - mountPath: {{ printf "/root/%s" (base $path) }}
+              name: scripts
+              subPath: {{ base $path }}
+          {{- end }}
+          {{- if .Files.Glob "scripts/run-druid" }}
+            - mountPath: /run-druid
+              name: scripts
+              subPath: run-druid
+          {{- end }}
+          {{- if .Files.Glob "scripts/handle-coredump" }}
+            - mountPath: /handle-coredump
+              name: scripts
+              subPath: handle-coredump
+          {{- end }}
+          {{- if .Values.security.tls }}
+            - mountPath: "/etc/imply/ca"
+              name: ca-secrets
+              readOnly: true
+          {{- end }}
+          {{- if $volumeClaim.enabled }}
+            - mountPath: {{ .Values.volumeClaim.mountPath }}
+              name: deep-storage
+          {{- end }}
+          {{- range $path, $val := .dataTierValues.configFiles }}
+            - mountPath: /{{ $path }}
+              subPath: {{ $path | replace "/" "-" | replace "." "-" }}
+              name: config-files
+          {{- end }}
+          {{- range $path, $val := .dataTierValues.secretConfigFiles }}
+            - mountPath: /{{ $path }}
+              subPath: {{ $path | replace "/" "-" | replace "." "-" }}
+              name: secrets
+          {{- end }}
+          {{- with .dataTierValues.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          livenessProbe:
+{{ merge (default .dataTierValues.livenessProbe dict) (include "imply.probe.livenessProbe" . | fromYaml) | toYaml | indent 12 }}
+          startupProbe:
+{{ merge (default .dataTierValues.startupProbe dict) (include "imply.probe.startupProbe" . | fromYaml) | toYaml | indent 12 }}
+          readinessProbe:
+{{ merge (default .dataTierValues.readinessProbe dict) (include "imply.probe.readinessProbe" . | fromYaml) | toYaml | indent 12 }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - /root/remove-node-v2 -c "{{ .Values.agents.clusterName }}" {{ ternary "" "-s" (empty .Values.security.tls) }}
+          resources:
+            {{- toYaml .dataTierValues.resources | nindent 12 }}
+{{- if .dataTierValues.sidecarContainers }}
+{{- toYaml .dataTierValues.sidecarContainers | nindent 8 }}
+{{- end }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "imply.scripts.fullname" . }}
+            defaultMode: 0777
+        {{- if .dataTierValues.configFiles }}
+        - name: config-files
+          configMap:
+            name: {{ .dataTierFullName }}
+        {{- end }}
+        {{- if .dataTierValues.secretConfigFiles }}
+        - name: secrets
+          secret:
+            secretName: {{ .dataTierFullName }}
+        {{- end }}
+      {{- if .Values.security.tls }}
+        - name: ca-secrets
+          secret:
+            secretName: {{ .Values.security.tls.secretName }}
+            items:
+              - key: tls.crt
+                path: tls.crt
+      {{- end }}
+      {{- if $volumeClaim.enabled }}
+        - name: deep-storage
+          persistentVolumeClaim:
+            claimName: {{ include "imply.storage.fullname" . }}
+      {{- end }}
+      {{- with .dataTierValues.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .dataTierValues.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .dataTierValues.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .dataTierValues.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .dataTierValues.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .dataTierValues.topologySpreadConstraints }}
+      topologySpreadConstraints:
+      {{- range $constraint := .dataTierValues.topologySpreadConstraints }}
+      - {{ $constraint | toYaml | indent 8 | trim }}
+        {{ if not $constraint.labelSelector -}}
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: {{ $.dataTierName }}
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  volumeClaimTemplates:
+{{- if .dataTierValues.persistence.enabled }}
+  - metadata:
+      name: var
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        {{- toYaml .dataTierValues.segmentCacheVolume.resources | nindent 8 }}
+      {{- with .dataTierValues.segmentCacheVolume.selector }}
+      selector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      storageClassName: {{ .dataTierValues.segmentCacheVolume.storageClassName }}
+  - metadata:
+      name: tmp
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        {{- toYaml .dataTierValues.tmpVolume.resources | nindent 8 }}
+      {{- with .dataTierValues.tmpVolume.selector }}
+      selector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      storageClassName: {{ .dataTierValues.tmpVolume.storageClassName }}
+{{- end }}
+  {{- with .dataTierValues.extraVolumeClaimTemplates }}
+{{ toYaml . | indent 2 }}
+  {{- end }}
+{{- end }}
+{{- end -}}

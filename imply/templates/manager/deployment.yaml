@@ -1,0 +1,409 @@
+{{- $customVersions := list -}}
+{{- range .Values.manager.customVersions -}}
+{{- $customVersions = append $customVersions (dict "version" .) -}}
+{{- end -}}
+
+{{- $additionalTierMiddleManagerProperties := dict -}}
+{{- $additionalTierHistoricalProperties := dict -}}
+{{- range $i, $additionalDataTier := .Values.additionalDataTiers }}
+{{- $tier := toString (add $i 4) -}}
+{{- if $additionalDataTier.customMiddleManagerRuntimeProperties }}
+{{- $_ := set $additionalTierMiddleManagerProperties $tier (tpl (join "\\n" $additionalDataTier.customMiddleManagerRuntimeProperties ) $ ) -}}
+{{- end -}}
+
+{{- if $additionalDataTier.customHistoricalRuntimeProperties }}
+{{- $_ := set $additionalTierHistoricalProperties $tier (tpl (join "\\n" $additionalDataTier.customHistoricalRuntimeProperties) $ ) -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.deployments.manager -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "imply.manager.fullname" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "imply.manager.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "imply.manager.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        imply.io/resource: "true"
+      {{- with .Values.manager.labels }}
+{{ toYaml . | indent 8 }}
+      {{- end }}
+    {{- if or .Values.manager.annotations .Values.manager.kubernetesMode }}
+      annotations:
+      {{- if .Values.manager.kubernetesMode }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/manager/config-map.yaml") . | sha256sum }}
+      {{- end }}
+      {{- if .Values.manager.annotations }}
+{{ toYaml .Values.manager.annotations | indent 8 }}
+      {{- end }}
+    {{- end }}
+    spec:
+    {{- with .Values.manager.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.images.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.manager.serviceAccountName }}
+      serviceAccountName: {{ .Values.manager.serviceAccountName }}
+    {{- end }}
+    {{- if .Values.manager.schedulerName }}
+      schedulerName: {{ .Values.manager.schedulerName }}
+    {{- end }}
+    {{- if .Values.manager.extraInitContainers }}
+      initContainers:
+      {{- toYaml .Values.manager.extraInitContainers | nindent 8 }}
+    {{- end }}
+      containers:
+        - name: {{ include "imply.chart.name" . }}
+          image: "{{ .Values.images.manager.repository }}:{{ .Values.images.manager.tag }}"
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+        {{- with .Values.manager.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+          env:
+          - name: IMPLY_MANAGER_LICENSE_KEY
+            value: {{ .Values.manager.licenseKey | quote }}
+
+          - name: IMPLY_MANAGER_VAR_FILES_PATH
+            value: "/run/secrets/imply.io"
+          - name: IMPLY_MANAGER_STORE_TYPE
+            value: "{{ .Values.manager.metadataStore.type }}"
+          - name: IMPLY_MANAGER_STORE_HOST
+            value: "{{ tpl .Values.manager.metadataStore.host . }}"
+          - name: IMPLY_MANAGER_STORE_PORT
+            value: "{{ .Values.manager.metadataStore.port }}"
+          - name: IMPLY_MANAGER_STORE_USER
+            value: "{{ .Values.manager.metadataStore.user }}"
+          - name: IMPLY_MANAGER_STORE_PASSWORD
+            value: "{{ .Values.manager.metadataStore.password }}"
+          - name: IMPLY_MANAGER_STORE_DATABASE
+            value: "{{ .Values.manager.metadataStore.database }}"
+        {{- if .Values.manager.kubernetesMode }}
+          - name: IMPLY_MANAGER_KUBERNETES_MODE
+            value: "true"
+          - name: IMPLY_MANAGER_SERVICE_NAME
+            value: {{ include "imply.manager.internalService.fullname" . }}
+          - name: IMPLY_MANAGER_KUBERNETES_INSTANCE_TYPE_NODE_SELECTOR_LABEL
+            value: "{{ .Values.manager.kubernetesMode.instanceTypeNodeSelectorLabel }}"
+          - name: IMPLY_MANAGER_HELM_CHART_LOCATION
+            value: "{{ .Values.manager.kubernetesMode.helmChartLocation }}"
+        {{- if .Values.manager.kubernetesMode.agentRepository }}
+          - name: imply_manager_onprem_kubernetes_implyAgentRegistry
+            value: "{{ .Values.manager.kubernetesMode.agentRepository }}"
+        {{- end }}
+        {{- if .Values.manager.kubernetesMode.agentTag }}
+          - name: imply_manager_onprem_kubernetes_implyAgentTag
+            value: "{{ .Values.manager.kubernetesMode.agentTag }}"
+        {{- end }}
+        {{- if .Values.manager.kubernetesMode.imagePullSecretsName }}
+          - name: imply_manager_onprem_kubernetes_imagePullSecretsName
+            value: "{{ .Values.manager.kubernetesMode.imagePullSecretsName }}"
+        {{- end }}
+        {{- if .Values.manager.ingress.host }}
+          - name: imply_manager_onprem_kubernetes_ingressHost
+            value: "{{ .Values.manager.ingress.host }}"
+        {{- end }}
+        {{- end }}
+        {{- if .Values.security.tls }}
+          - name: IMPLY_MANAGER_CA_KEY_PATH
+            value: /etc/imply/ca/tls.key
+          - name: IMPLY_MANAGER_CA_CERT_PATH
+            value: /etc/imply/ca/tls.crt
+          - name: IMPLY_MANAGER_HOSTNAMES
+            value: {{ include "imply.manager.internalService.fullname" . }}
+          - name: IMPLY_MANAGER_NAMESPACE
+            value: {{ .Release.Namespace }}
+        {{- end }}
+        {{- if .Values.security.auth }}
+          - name: IMPLY_MANAGER_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.security.auth.secretName }}
+                key: auth-token
+        {{- end }}
+        {{- if .Values.manager.metadataStore.tlsCert }}
+          - name: IMPLY_MANAGER_STORE_CA_CERT_PATH
+            value: /etc/imply/ca/manager-store.crt
+          - name: IMPLY_MANAGER_STORE_CA_CERT
+            value: {{ .Values.manager.metadataStore.tlsCert | quote }}
+        {{- end }}
+        {{- if and .Values.manager.metadataStore.clientCert .Values.manager.metadataStore.clientKey }}
+          - name: IMPLY_MANAGER_STORE_CLIENT_CERT_PATH
+            value: /etc/imply/ca/manager-store-client-cert.crt
+          - name: IMPLY_MANAGER_STORE_CLIENT_CERT
+            value: {{ .Values.manager.metadataStore.clientCert | quote }}
+          - name: IMPLY_MANAGER_STORE_CLIENT_KEY_PATH
+            value: /etc/imply/ca/manager-store-client-key.crt
+          - name: IMPLY_MANAGER_STORE_CLIENT_KEY
+            value: {{ .Values.manager.metadataStore.clientKey | quote }}
+        {{- end }}
+          - name: IMPLY_MANAGER_DEFAULTS_UPDATE_TYPE
+            value: {{ .Values.druid.update }}
+
+          - name: imply_defaults_zkType
+            value: external
+          - name: imply_defaults_zkBasePath
+            value: "{{ .Values.druid.zk.basePath }}"
+          - name: imply_defaults_zkHosts
+            value: "{{ tpl .Values.druid.zk.connectString . }}"
+
+          - name: imply_defaults_metadataStorageType
+            value: "{{ .Values.druid.metadataStore.type }}"
+          - name: imply_defaults_metadataStorageHost
+            value: "{{ tpl .Values.druid.metadataStore.host . }}"
+          - name: imply_defaults_metadataStoragePort
+            value: "{{ .Values.druid.metadataStore.port }}"
+          - name: imply_defaults_metadataStorageUser
+            value: "{{ .Values.druid.metadataStore.user }}"
+          - name: imply_defaults_metadataStoragePassword
+            value: "{{ .Values.druid.metadataStore.password }}"
+        {{- if .Values.druid.metadataStore.tlsCert }}
+          - name: imply_defaults_metadataStorageTlsCert
+            value: {{ .Values.druid.metadataStore.tlsCert | quote }}
+        {{- end }}
+
+          - name: imply_defaults_deepStorageType
+            value: "{{ .Values.druid.deepStorage.type }}"
+          - name: imply_defaults_deepStoragePath
+            value: "{{ .Values.druid.deepStorage.path }}"
+          {{- if .Values.druid.deepStorage.user }}
+          - name: imply_defaults_deepStorageUser
+            value: "{{ .Values.druid.deepStorage.user }}"
+          {{- end }}
+          {{- if .Values.druid.deepStorage.password }}
+          - name: imply_defaults_deepStoragePassword
+            value: "{{ .Values.druid.deepStorage.password }}"
+          {{- end }}
+
+          {{- if .Values.druid.implyVersion }}
+          - name: imply_defaults_implyVersion
+            value: "{{ .Values.druid.implyVersion }}"
+          {{- end }}
+
+          {{- if .Values.druid.userExtensions }}
+          - name: imply_defaults_userExtensions
+            value: {{ .Values.druid.userExtensions | toJson | quote }}
+          {{- end }}
+
+          {{- if .Values.druid.customFiles }}
+          - name: imply_defaults_customFiles
+            value: {{ .Values.druid.customFiles | toJson | quote }}
+          {{- end }}
+
+          {{- if .Values.druid.commonRuntimeProperties }}
+          - name: imply_defaults_commonCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.commonRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.coordinatorRuntimeProperties }}
+          - name: imply_defaults_coordinatorCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.coordinatorRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.overlordRuntimeProperties }}
+          - name: imply_defaults_overlordCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.overlordRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.historicalRuntimeProperties }}
+          - name: imply_defaults_historicalCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.historicalRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.historicalTier1RuntimeProperties }}
+          - name: imply_defaults_historicalTier1CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.historicalTier1RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.historicalTier2RuntimeProperties }}
+          - name: imply_defaults_historicalTier2CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.historicalTier2RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.historicalTier3RuntimeProperties }}
+          - name: imply_defaults_historicalTier3CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.historicalTier3RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.middleManagerRuntimeProperties }}
+          - name: imply_defaults_middleManagerCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.middleManagerRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.middleManagerTier1RuntimeProperties }}
+          - name: imply_defaults_middleManagerTier1CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.middleManagerTier1RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.middleManagerTier2RuntimeProperties }}
+          - name: imply_defaults_middleManagerTier2CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.middleManagerTier2RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.middleManagerTier3RuntimeProperties }}
+          - name: imply_defaults_middleManagerTier3CustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.middleManagerTier3RuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.brokerRuntimeProperties }}
+          - name: imply_defaults_brokerCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.brokerRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.routerRuntimeProperties }}
+          - name: imply_defaults_routerCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.routerRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.druid.pivotRuntimeProperties }}
+          - name: imply_defaults_pivotCustomDruidProperties
+            value: '{{ tpl (join "\\n" .Values.druid.pivotRuntimeProperties) . }}'
+          {{- end }}
+          {{- if .Values.manager.customVersions }}
+          - name: imply_defaults_customImplyVersions
+            value: '{{ toJson $customVersions }}'
+          {{- end }}
+          - name: imply_defaults_additionalDataTierMiddleManagerRuntimeProperties
+            value: '{{ toJson $additionalTierMiddleManagerProperties }}'
+          - name: imply_defaults_additionalDataTierHistoricalRuntimeProperties
+            value: '{{ toJson $additionalTierHistoricalProperties }}'
+          - name: imply_manager_onprem_syslogEnabled
+            value: "true"
+          {{- with .Values.manager.extraEnv }}
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+
+          ports:
+            - name: manager-fe
+              containerPort: 9097
+            - name: manager-be
+              containerPort: 9989
+            - name: grove-internal
+              containerPort: 9998
+            - name: grove-http
+              containerPort: 9999
+
+          volumeMounts:
+            - mountPath: "/mnt/var"
+              name: var-volume
+          {{- if .Values.security.tls }}
+            - mountPath: "/etc/imply/ca/tls.key"
+              name: ca-secrets
+              subPath: tls.key
+              readOnly: true
+            - mountPath: "/etc/imply/ca/tls.crt"
+              name: ca-secrets
+              subPath: tls.crt
+              readOnly: true
+          {{- end }}
+          {{- if .Values.manager.secretName }}
+            - mountPath: "/run/secrets/imply.io"
+              name: imply-manager-secrets
+              readOnly: true
+          {{- end }}
+          {{- if .Values.manager.kubernetesMode }}
+            - mountPath: /opt/grove/resource/config/prod-dataInstanceTypes.json
+              name: data-instance-types-config
+              subPath: prod-dataInstanceTypes.json
+              readOnly: true
+            - mountPath: /opt/grove/resource/config/prod-masterInstanceTypes.json
+              name: master-instance-types-config
+              subPath: prod-masterInstanceTypes.json
+              readOnly: true
+            - mountPath: /opt/grove/resource/config/prod-queryInstanceTypes.json
+              name: query-instance-types-config
+              subPath: prod-queryInstanceTypes.json
+              readOnly: true
+            - mountPath: /opt/grove/resource/config/prod-druidInstanceTypeConfigurationsVersioned.json
+              name: druid-instance-type-configurations-versioned-config
+              subPath: prod-druidInstanceTypeConfigurationsVersioned.json
+              readOnly: true
+          {{- end }}
+          {{- with .Values.manager.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          startupProbe:
+            httpGet:
+             {{- if .Values.security.tls }}
+              scheme: HTTPS
+            {{- end }}
+              path: /health
+              port: manager-fe
+            failureThreshold: 36
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+            {{- if .Values.security.tls }}
+              scheme: HTTPS
+            {{- end }}
+              path: /health
+              port: manager-fe
+          readinessProbe:
+            httpGet:
+            {{- if .Values.security.tls }}
+              scheme: HTTPS
+            {{- end }}
+              path: /health
+              port: manager-fe
+          resources:
+            {{- toYaml .Values.manager.resources | nindent 12 }}
+
+      volumes:
+        - name: var-volume
+          emptyDir: {}
+      {{- if .Values.security.tls }}
+        - name: ca-secrets
+          secret:
+            secretName: {{ .Values.security.tls.secretName }}
+      {{- end }}
+      {{- if .Values.manager.secretName }}
+        - name: imply-manager-secrets
+          secret:
+            secretName: {{ .Values.manager.secretName }}
+            optional: true
+      {{- end }}
+      {{- if .Values.manager.kubernetesMode }}
+        - name: data-instance-types-config
+          configMap:
+            name: {{ include "imply.manager.fullname" . }}
+            items:
+              - key: "prod-dataInstanceTypes.json"
+                path: "prod-dataInstanceTypes.json"
+        - name: master-instance-types-config
+          configMap:
+            name: {{ include "imply.manager.fullname" . }}
+            items:
+              - key: "prod-masterInstanceTypes.json"
+                path: "prod-masterInstanceTypes.json"
+        - name: query-instance-types-config
+          configMap:
+            name: {{ include "imply.manager.fullname" . }}
+            items:
+              - key: "prod-queryInstanceTypes.json"
+                path: "prod-queryInstanceTypes.json"
+        - name: druid-instance-type-configurations-versioned-config
+          configMap:
+            name: {{ include "imply.manager.fullname" . }}
+            items:
+              - key: "prod-druidInstanceTypeConfigurationsVersioned.json"
+                path: "prod-druidInstanceTypeConfigurationsVersioned.json"
+      {{- end }}
+      {{- with .Values.manager.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.manager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.manager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

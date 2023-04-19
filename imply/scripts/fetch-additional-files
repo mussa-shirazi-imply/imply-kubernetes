@@ -1,0 +1,97 @@
+#!/bin/bash -e
+
+# TODO: Unify grove directory across on prem deployment methods https://implydata.atlassian.net/browse/IMPLY-4439
+GROVE_DEPLOY_DIR=/opt/grove/deploy
+# Baremetal grove directory
+if [[ -d /var/opt/imply/grove/deploy ]]; then
+  GROVE_DEPLOY_DIR=/var/opt/imply/grove/deploy
+fi
+
+n=0;
+until [ $n -ge 20 ]; do
+  IMPLY_BUNDLE_ID=$(ls "$GROVE_DEPLOY_DIR" | grep 'imply-.*') && break
+  n=$((n+1));
+  echo "Retrying fetch of IMPLY_BUNDLE_ID in 10 seconds...";
+  sleep 10;
+done;
+
+if [ -z "$IMPLY_BUNDLE_ID" ]; then
+  echo "Could not get IMPLY_BUNDLE_ID"
+  exit 1
+fi
+
+# Recreate custom user files directories to remove any previous files
+rm -rf /opt/imply/conf/druid/user-classpath /opt/imply/user /opt/imply/extensions /opt/imply/hadoop-dependencies
+mkdir -p /opt/imply/conf/druid/user-classpath /opt/imply/user /opt/imply/extensions /opt/imply/hadoop-dependencies
+
+if [ -s /opt/imply/conf/userFilePaths ]; then
+  while IFS='' read -r line || [[ -n "$line" ]]; do
+
+    if [[ $line =~ ^\[([A-Z]*?)\](.*)$ ]]; then
+      FLAGS="${BASH_REMATCH[1]}"
+      URL="${BASH_REMATCH[2]}"
+    else
+      FLAGS=""
+      URL=$line
+    fi
+
+    [ -r /opt/imply/onprem/conf/manager-repo-host ] && MANAGER_REPO_HOST=$(cat /opt/imply/onprem/conf/manager-repo-host) || MANAGER_REPO_HOST="imply-manager:9999"
+    URL=${URL//@MANAGER_REPO_HOST/"$MANAGER_REPO_HOST"}
+    [ -r /opt/imply/onprem/conf/manager-repo-auth ] && MANAGER_REPO_AUTH=$(cat /opt/imply/onprem/conf/manager-repo-auth) || MANAGER_REPO_AUTH=""
+    [ -n "$MANAGER_REPO_AUTH" ] && AUTH=("-u" "$MANAGER_REPO_AUTH")
+    [ -n "$IMPLY_MANAGER_CA_CERT_PATH" ] && CA_CERT="--cacert $IMPLY_MANAGER_CA_CERT_PATH"
+
+    TMP_DIR=$(mktemp -d)
+    FILE_NAME=$(basename $([[ $URL =~ ^(.*)\?.*$ ]] && echo "${BASH_REMATCH[1]}" || echo "$URL"))
+    FILE_PATH="$TMP_DIR/$FILE_NAME"
+
+    n=0;
+    until [ $n -ge 3 ]; do
+      if [[ $URL =~ ^s3://.* ]]; then
+        aws s3 cp $URL "$FILE_PATH" && break
+      else
+        curl -sSLf "${AUTH[@]}" $CA_CERT --create-dirs -o "$FILE_PATH" --retry 3 -m 420 --connect-timeout 10 -w "[curl] %{response_code} / %{size_download} bytes / %{time_total}s -> %{filename_effective}\n" $URL && break
+      fi
+
+      n=$((n+1));
+      echo "Retrying fetch of [$URL] in 10 seconds...";
+      sleep 10;
+    done;
+
+    if [[ $FLAGS == *"X"* ]]; then
+      chmod +x "$FILE_PATH"
+    fi
+
+    if [[ $FLAGS == *"C"* ]]; then
+      # If the conf/druid/user-classpath directory exists, this version has a run-druid that adds $CONFDIR/user-classpath to the classpath
+      if [ -d "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/conf/druid/user-classpath" ]; then
+        DEST="/opt/imply/conf/druid/user-classpath"
+      elif [[ "$FILE_NAME" == *.jar ]] || [[ "$FILE_NAME" == *.JAR ]]; then
+        DEST="$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/lib"
+      else
+        DEST="/opt/imply/conf/druid/_common"
+      fi
+    elif [[ $FLAGS == *"H"* ]]; then
+      DEST="/opt/imply/hadoop-dependencies"
+    elif [[ $FLAGS == *"E"* ]]; then
+      DEST="/opt/imply/extensions"
+    else
+      DEST="/opt/imply/user"
+    fi
+
+    mkdir -p "$DEST"
+
+    if [[ $FLAGS == *"A"* ]]; then
+      tar -C "$DEST" --recursive-unlink -xf "$FILE_PATH"
+    else
+      cp "$FILE_PATH" "$DEST"
+    fi
+
+    rm -rf $TMP_DIR
+
+  done < /opt/imply/conf/userFilePaths
+fi
+
+# Symlink extensions and Hadoop dependencies from the distribution
+ln -sv "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/hadoop-dependencies/"* /opt/imply/hadoop-dependencies || true
+ln -sv "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/extensions/"* /opt/imply/extensions || true

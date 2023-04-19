@@ -1,0 +1,97 @@
+#!/bin/bash -u
+
+# TODO: Unify grove directory across on prem deployment methods https://implydata.atlassian.net/browse/IMPLY-4439
+GROVE_DEPLOY_DIR=/opt/grove/deploy
+# Baremetal grove directory
+if [[ -d /var/opt/imply/grove/deploy ]]; then
+  GROVE_DEPLOY_DIR=/var/opt/imply/grove/deploy
+fi
+
+shopt -s nocasematch
+for var in $(compgen -e); do
+  if [[ $var =~ ^druid_common_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/_common" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/_common/common.runtime.properties
+
+  elif [[ $var =~ ^druid_coordinator_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/coordinator" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/coordinator/runtime.properties
+
+  elif [[ $var =~ ^druid_overlord_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/overlord" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/overlord/runtime.properties
+
+  elif [[ $var =~ ^druid_broker_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/broker" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/broker/runtime.properties
+
+  elif [[ $var =~ ^druid_router_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/router" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/router/runtime.properties
+
+  elif [[ $var =~ ^druid_historical_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/historical" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/historical/runtime.properties
+
+  elif [[ $var =~ ^druid_middlemanager_runtime_(.*)$ ]] && [ -d "/opt/imply/conf/druid/middleManager" ]; then
+    echo "${BASH_REMATCH[1]//_/.}=${!var}" >> /opt/imply/conf/druid/middleManager/runtime.properties
+
+  elif [[ $var =~ ^pivot_config_.*$ ]] && [ -d "/opt/imply/conf/pivot" ]; then
+    echo "${!var}" >> /opt/imply/conf/pivot/config.yaml
+  fi
+done
+shopt -u nocasematch
+
+set -e
+
+n=0;
+until [ $n -ge 20 ]; do
+  IMPLY_BUNDLE_ID=$(ls "$GROVE_DEPLOY_DIR" | grep 'imply-.*') && break
+  n=$((n+1));
+  echo "Retrying fetch of IMPLY_BUNDLE_ID in 10 seconds...";
+  sleep 10;
+done;
+
+if [ -z "$IMPLY_BUNDLE_ID" ]; then
+  echo "Could not get IMPLY_BUNDLE_ID"
+  exit 1
+fi
+
+# TODO: Support PostgreSQL JDBC connector
+# Workaround for https://github.com/druid-io/druid/issues/2345
+# mariadb and mysql connector jars cannot be available in the same class path, ensure only one is copied to the extensions
+if find ${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/extensions/mysql-metadata-storage/ | grep "mariadb-java-client.*.jar" -q; then
+  find "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/extensions/mysql-metadata-storage/" \
+  -name mariadb-java-client*.jar -exec cp {} "${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/lib/" \;
+else 
+  find "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/extensions/mysql-metadata-storage/" \
+  -name mysql-connector*.jar -exec cp {} "${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/lib/" \;
+fi
+
+# STS is only available in >= 2021.02
+# After 2022.05 aws-java-sdk-sts*.jar is symlinked from dist/druid/lib to dist/druid/extensions/druid-s3-extensions
+if find ${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/extensions/druid-s3-extensions/ | grep "aws-java-sdk-sts.*.jar" -q && ! find ${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/lib/ | grep "aws-java-sdk-sts.*.jar" -q ; then
+  cp "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/extensions/druid-s3-extensions/"aws-java-sdk-sts*.jar "$GROVE_DEPLOY_DIR/$IMPLY_BUNDLE_ID/dist/druid/lib"
+fi
+
+(
+  cd "${GROVE_DEPLOY_DIR}/${IMPLY_BUNDLE_ID}/dist/druid/lib/"
+  # Validate we are on log4j less than 2.15.0
+  if find . | grep "log4j" | grep -v "iap" &>/dev/null && \
+    [ "$(find . -name "log4j-*" | head -n 1 | sed -E "s/^.*-([^-]+)\.jar$/2.14.1\n\1/" | sort -rV | head -n 1)" == "2.14.1" ]; then
+    if ! curl -sSLf https://static.imply.io/manager/lib/log4j-api-2.8.2-iap.jar &>/dev/null; then
+      echo "Cannot access the internet, not patching log4j"
+      exit 1
+    fi
+    echo "Patching log4j in place"
+    # Remove existing log4j jars.
+    find . -name "log4j-*" -delete
+    # Pull new log4j jars.
+    curl -sSLfO https://static.imply.io/manager/lib/log4j-api-2.8.2-iap.jar
+    curl -sSLfO https://static.imply.io/manager/lib/log4j-jul-2.8.2-iap.jar
+    curl -sSLfO https://static.imply.io/manager/lib/log4j-1.2-api-2.8.2-iap.jar
+    curl -sSLfO https://static.imply.io/manager/lib/log4j-slf4j-impl-2.8.2-iap.jar
+    curl -sSLfO https://static.imply.io/manager/lib/log4j-core-2.8.2-iap.jar
+  else
+    echo "Not modifying log4j"
+  fi
+) || true
+
+# Look for specially named executable script for user actions
+if [ -x /opt/imply/user/user-init ]; then
+  (cd /opt/imply/user && /opt/imply/user/user-init) || true
+fi

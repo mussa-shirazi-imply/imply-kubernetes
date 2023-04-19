@@ -1,0 +1,206 @@
+#!/bin/bash -u
+
+getAvailabilityZone() {
+  local PARAMS=(-sSLf --retry 2 --retry-connrefused)
+  local TOKEN
+
+  if ! TOKEN="$(curl "${PARAMS[@]}" -X PUT 'http://instance-data/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')"; then
+    return 5
+  fi
+
+  curl "${PARAMS[@]}" -H "X-aws-ec2-metadata-token: $TOKEN" http://instance-data/latest/meta-data/placement/availability-zone
+}
+
+writeConfigServerRequestPayload() {
+  mkdir -p "$(dirname "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH")"
+
+  # set node type to "data" for data pods
+  if [[ $IMPLY_MANAGER_AGENT_NODE_TYPE == data* ]] ;
+  then
+    case $IMPLY_MANAGER_AGENT_NODE_TYPE in
+      dataTier1)
+        NODE_TIER_VALUE=1
+        ;;
+      dataTier2)
+        NODE_TIER_VALUE=2
+        ;;
+      dataTier3)
+        NODE_TIER_VALUE=3
+        ;;
+    esac
+
+    IMPLY_MANAGER_AGENT_NODE_TYPE="data"
+  fi
+
+  cat <<EOT > "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH"
+{
+  "clusterId": "${IMPLY_MANAGER_AGENT_CLUSTER}",
+  "instanceType": "${IMPLY_MANAGER_AGENT_INSTANCE_TYPE}",
+  "instanceTier": ${NODE_TIER_VALUE},
+  "instanceId": "${CONTAINER_HOSTNAME}",
+  "serviceTypes": ["$IMPLY_MANAGER_AGENT_NODE_TYPE"],
+  "key": "${IMPLY_CONFIG_SERVER_KEY}",
+  "privateIpAddresses": ["${POD_IP_ADDRESS}"],
+  "publicIpAddresses": ["${POD_IP_ADDRESS}"],
+  "privateHostnames": ["${CONTAINER_HOSTNAME}"],
+  "publicHostnames": ["@{IMPLY_AGENT_FQDN}"]
+}
+EOT
+
+  if [ -n "${IMPLY_CONFIG_VERSION:-}" ]; then
+    local contents
+    contents="$(jq --argjson version "$IMPLY_CONFIG_VERSION" '.configVersion = $version' "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH")"
+    echo -E "${contents}" > "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH"
+  fi
+
+  if AZ=$(getAvailabilityZone); then
+    local contents
+    contents="$(jq --arg zone "$AZ" '.availabilityZone = $zone' "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH")"
+    echo -E "${contents}" > "$CONFIG_SERVER_REQUEST_PAYLOAD_PATH"
+  fi
+}
+
+getConfigFile() {
+  local PARAMS=(-sSLf --create-dirs --retry 5 --retry-connrefused -m 15 -XPOST -H "Content-Type:application/json" -d @"$CONFIG_SERVER_REQUEST_PAYLOAD_PATH")
+  local SCHEMA="http"
+  local ENDPOINT="$1"
+  local OUTPUT_PATH="$2"
+
+  # set auth params
+  [ -n "$AUTH" ] && PARAMS+=(-u "imply:$AUTH")
+  
+  # set ca certificate params
+  [ -n "$CA_CERT_PATH" ] && PARAMS+=(--cacert "$CA_CERT_PATH")
+
+  PARAMS+=(-o "$OUTPUT_PATH" "$BASE_URI/$ENDPOINT")
+
+  if ! curl "${PARAMS[@]}"; then
+    printf "Unable to fetch config file [%s] at [%s]\n" "$ENDPOINT" "$OUTPUT_PATH"
+    exit 2
+  fi
+}
+
+prepareConfigFile() {
+  local ENDPOINT="$1"
+  local STAGED_PATH="$2"
+  local OUTPUT_PATH="$3"
+
+  if [ -e "$STAGED_PATH" ]; then
+    cp -R "$STAGED_PATH" "$OUTPUT_PATH"
+  else
+    getConfigFile "$ENDPOINT" "$OUTPUT_PATH"
+  fi
+}
+
+prepareConfZipFile() {
+  if [ -e "${STAGED_CONF_PATH}/conf" ]; then
+    mkdir -p "$CONF_PATH"
+    cp -R "${STAGED_CONF_PATH}/conf/." "$CONF_PATH/"
+  else
+    getConfigFile "config/v1/config-bundle" "${CONF_PATH}/conf.zip"
+    cd "${CONF_PATH}" && unzip -o conf.zip && rm conf.zip
+  fi
+  chmod +x "${CONF_PATH}/bin/"*
+}
+
+fetchConfigBundle() {
+  prepareConfZipFile
+
+  prepareConfigFile "config/v1/grove-init" "${STAGED_CONF_PATH}/grove-init.yaml" "/etc/grove-init.yaml"
+  prepareConfigFile "config/v1/logview" "${STAGED_CONF_PATH}/logview.yaml" "/etc/logview.yaml"
+  prepareConfigFile "config/v1/user-files-x" "${STAGED_CONF_PATH}/conf/userFilePaths" "${CONF_PATH}/userFilePaths"
+
+  if [ "${HTTPS}" = true ]; then
+    getConfigFile "auth/v1/keystore" "${CONF_PATH}/druid/_common/keystore.jks"
+    getConfigFile "auth/v1/truststore" "${CONF_PATH}/druid/_common/truststore.jks"
+  fi
+
+  if ! chown -f -R "$GROVE_SERVICE_USER:$GROVE_SERVICE_GROUP" "$CONF_PATH"; then
+    printf "Unable to chown [%s] to [%s]\n" "$CONF_PATH" "$GROVE_SERVICE_USER:$GROVE_SERVICE_GROUP"
+    exit 3
+  fi
+}
+
+becomeServices() {
+  if ! grove-become \
+    --yaml /etc/grove-init.yaml \
+    --type imply \
+    -c "${SCRIPT_MOUNT_DIR}/fetch-additional-files" \
+    -c "${SCRIPT_MOUNT_DIR}/post-init-actions-k8s" \
+    --skip-start; then
+    printf "grove-become failed, grove-init.yaml value is:\n"
+    cat /etc/grove-init.yaml
+    exit 4
+  fi
+}
+
+usage() {
+  for msg in "$@"; do
+    echo "$msg" 1>&2
+  done
+
+  exit 1
+}
+
+# ---------
+# Validation
+validate_args() {
+  if [ -z "$MANAGER" ]; then
+    usage "Unable to detect manager host"
+  elif [ "$MANAGER_PORT" -le 0 ] || [ "$MANAGER_PORT" -gt 65535 ]; then
+    usage "Port must be between 1-65535"
+  elif [ -z "$POD_IP_ADDRESS" ]; then
+    usage "Pod IP address not specified, check if env [druid_common_runtime_druid_host] is set"
+  elif [ -z "$IMPLY_MANAGER_AGENT_CLUSTER" ]; then
+    usage "Cluster ID not specified, check if env [IMPLY_MANAGER_AGENT_CLUSTER] is set"
+  elif [ -z "$IMPLY_MANAGER_AGENT_INSTANCE_TYPE" ]; then
+    usage "Instance type not specified, check if env [IMPLY_MANAGER_AGENT_INSTANCE_TYPE] is set"
+  elif [ -z "$IMPLY_MANAGER_AGENT_NODE_TYPE" ]; then
+    usage "Node type not specified, check if env [IMPLY_MANAGER_AGENT_NODE_TYPE] is set"
+  elif [ -z "$IMPLY_CONFIG_SERVER_KEY" ]; then
+    usage "Config server key not specified, check if env [IMPLY_CONFIG_SERVER_KEY] is set"
+  fi
+}
+
+initialize() {
+  if [ "${HTTPS}" = true ]; then
+    SCHEMA="https"
+  fi
+
+  BASE_URI="${SCHEMA}://${MANAGER}:${MANAGER_PORT}"
+}
+
+# ---------
+# Variables
+SCHEMA="http"
+MANAGER=${IMPLY_MANAGER_HOST-""}
+MANAGER_PORT=${IMPLY_MANAGER_BE_PORT:-9989}
+HTTPS=false
+AUTH="${IMPLY_MANAGER_AUTH_TOKEN:-""}"
+CA_CERT_PATH="${IMPLY_MANAGER_CA_CERT_PATH:-""}"
+CONTAINER_HOSTNAME=$(hostname)
+NODE_TIER_VALUE=${NODE_TIER_VALUE:-0}
+CONFIG_SERVER_REQUEST_PAYLOAD_PATH="/opt/imply/onprem/conf/config-server.json"
+CONF_PATH="/opt/imply/conf"
+STAGED_CONF_PATH="/opt/staged"
+GROVE_SERVICE_USER=grove
+GROVE_SERVICE_GROUP=grove
+POD_IP_ADDRESS=${druid_common_runtime_druid_host:-""}
+IMPLY_MANAGER_AGENT_CLUSTER=${IMPLY_MANAGER_AGENT_CLUSTER:-""}
+IMPLY_MANAGER_AGENT_INSTANCE_TYPE=${IMPLY_MANAGER_AGENT_INSTANCE_TYPE:-""}
+IMPLY_MANAGER_AGENT_NODE_TYPE=${IMPLY_MANAGER_AGENT_NODE_TYPE:-""}
+IMPLY_CONFIG_SERVER_KEY=${IMPLY_CONFIG_SERVER_KEY:-""}
+SCRIPT_MOUNT_DIR=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
+
+main() {
+  validate_args && initialize
+
+  writeConfigServerRequestPayload
+
+  fetchConfigBundle
+
+  becomeServices
+}
+
+# only run if not sourced to support tests.
+(return 0 2>/dev/null) || main

@@ -1,0 +1,57 @@
+#!/bin/bash -u
+
+getToken() {
+    if [ ! -f "$TOKEN_FILE" ]
+    then
+        refreshToken false
+    else
+        timestamp=$(date +%s)
+        last_refresh=$(jq '.last_refresh' < "$TOKEN_FILE")
+        expires_in=$(jq '.expires_in' < "$TOKEN_FILE")
+        refresh_expires_in=$(jq '.refresh_expires_in' < "$TOKEN_FILE")
+        if [ $((last_refresh + expires_in > timestamp)) == 1 ]
+        then
+            :
+        elif [ $((last_refresh + refresh_expires_in > timestamp)) == 1 ]
+        then
+            refreshToken true
+        else
+            refreshToken false
+        fi
+    fi
+    jq -r '.access_token' < "$TOKEN_FILE"
+}
+
+refreshToken() {
+    if [ "$1" == false ]
+    then
+        tokenResponse=$(keycloakNewToken)
+    else
+        tokenResponse=$(keycloakRefreshToken)
+    fi
+    tokenResponse=$(jq --arg last_refresh "$(date +%s)" '. + {last_refresh: $last_refresh|tonumber}' <<< "${tokenResponse}")
+    if [ "$(jq 'has("access_token")' <<< "${tokenResponse}")" == false ]
+    then
+        echo "Refreshing keycloak token failed."
+        echo "$tokenResponse" | jq '.'
+        exit 1
+    fi
+    jq '.' > "$TOKEN_FILE" <<< "$tokenResponse"
+}
+
+keycloakRefreshToken() {
+    refresh_token=$(jq -r '.refresh_token' < "$TOKEN_FILE")
+    curl --location --request POST "${KEYCLOAK_HOST}/realms/${KEYCLOAK_REALM_NAME}/protocol/openid-connect/token" \
+    --header 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode grant_type=refresh_token \
+    --data-urlencode refresh_token="${refresh_token}" \
+    --data-urlencode client_id="${KEYCLOAK_CLIENT_ID}"
+}
+
+keycloakNewToken() {
+    curl --location --request POST "${KEYCLOAK_HOST}/realms/${KEYCLOAK_REALM_NAME}/protocol/openid-connect/token" \
+    --header 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode grant_type=client_credentials \
+    --data-urlencode client_secret="${KEYCLOAK_CLIENT_SECRET}" \
+    --data-urlencode client_id="${KEYCLOAK_CLIENT_ID}"
+}

@@ -1,0 +1,57 @@
+{{- $queryfullName := include "imply.query.fullname" . -}}
+{{- if .Values.query.ingress.pivot -}}
+  {{- if .Values.query.ingress.pivot.enabled -}}
+apiVersion: "networking.k8s.io/v1"
+kind: Ingress
+metadata:
+  name: {{ include "imply.pivot.ingressName" . }}
+  labels:
+{{ include "imply.labels" . | indent 4 }}
+{{- with .Values.query.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+  annotations:
+  {{- with .Values.query.ingress.pivot.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  rules:
+    - http:
+    {{- if .Values.query.ingress.pivot.paths }}
+        paths:
+    {{- range .Values.query.ingress.pivot.paths }}
+          - path: {{ . }}
+            pathType: {{ $.Values.query.ingress.pivot.pathType }}
+            backend:
+              service:
+                name: {{ $queryfullName }}
+                port:
+                  name: pivot
+    {{- end }}
+    {{- end }}
+    {{- if .Values.query.ingress.pivot.host }}
+      host: {{ .Values.query.ingress.pivot.host }}
+    {{- end }}
+  {{- range .Values.query.ingress.pivot.rules }}
+    - http:
+        paths:
+    {{- $pathType := .pathType | default "Prefix" }}
+    {{- range .paths }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $queryfullName }}
+                port:
+                  name: pivot
+    {{- end }}
+    {{- if .host }}
+      host: {{ .host }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.query.ingress.pivot.tls }}
+  tls:
+{{ toYaml .Values.query.ingress.pivot.tls | indent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

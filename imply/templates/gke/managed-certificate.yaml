@@ -1,0 +1,9 @@
+{{- if and .Values.manager.kubernetesMode .Values.manager.ingress.enabled -}}
+apiVersion: networking.gke.io/v1beta1
+kind: ManagedCertificate
+metadata:
+  name: {{ include "imply.manager.fullname" . }}
+spec:
+  domains:
+    - {{ .Values.manager.ingress.host }}
+{{- end }}
