@@ -356,15 +356,19 @@ Deployment view should look like as follows
 
 
 
-## Step8 : Change default cluster configuration on imply manager
+## Step8 : Change default cluster configuration and start cluster on imply manager
 
 Open in the browser in the url :  http://manager.testzone.io
 
 This is imporportant step as after making this change you should notice that all the pods are up and running. Change the metadata storge setting to use the postgress we deployed earlier.
 
 
-![Logo](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/th5xamgrr6se0x5ro4g6.png)
+![sql](./images/sql.png)
 
+Now click on start to start the pods. If everything goes well you should have a all pods running as shown in the below step. 
+
+
+![start](./images/manager.png)
 
 
 ## Step 9 : Confirm All the pods are up and you are able to access Druid console
