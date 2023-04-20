@@ -1,5 +1,10 @@
-# imply-kubernetes
+# imply-kubernetes  
  
+# Introduction
+
+This repo to deploy imply enterprise on your laptop using kind kubernetes. Below diagram shows how the pods are deployed. Since this is dev setup we will only single pod for each service. For production the setup will look like different . We are also using ngix ingress controller connect to the imply manager and druid console. 
+
+![pod](./images/pods.png)
 
  ## Step1 : Create Kind cluster
 
@@ -317,7 +322,18 @@ Make sure you have installed [Kubectl](https://kubernetes.io/docs/tasks/tools/in
 ```
 kubectl get pods
 
+NAME                             READY   STATUS    RESTARTS      AGE
+imply-data-0                     0/1     Running   0             20h
+imply-data-1                     0/1     Running   0             20h
+imply-manager-78f8654b4b-jz5gm   1/1     Running   0             20h
+imply-master-7c69ff8d4-62qjd     0/1     Running   1 (19h ago)   20h
+imply-minio-5d85c84dc4-px8w5     1/1     Running   0             20h
+imply-query-d966fb766-dbw8n      0/1     Running   0             20h
+imply-zookeeper-0                1/1     Running   0             20h
+postgres-7454f995b-hzsjs         1/1     Running   0             20h
+
 ```
+
 
 > **Note**
 > Dont worry as you may see some pods are not fully up and should show similar output. In this step make sure `zookeeper`,`manager` and `master` pods are up and proced to next step.
