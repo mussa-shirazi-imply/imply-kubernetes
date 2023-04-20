@@ -1,14 +1,14 @@
 # imply-kubernetes
  
 
- ### Create Kind cluster
+ ## Step1 : Create Kind cluster
 
-create the cluster using the default cluster name kind
+create the cluster using the default cluster name kind . For more information [on how to install ](https://kind.sigs.k8s.io/docs/user/quick-start/) kind application your laptop
   
 `kind create cluster --config kind-cluster/kube-demo-cluster.yaml`
 
 
-### Check Cluster nodes
+#### Check Cluster nodes
 
 `kubectl get nodes`
 
@@ -19,10 +19,11 @@ NAME                 STATUS   ROLES           AGE     VERSION
 kind-control-plane   Ready    control-plane   2m33s   v1.26.3
 kind-worker          Ready    <none>          2m14s   v1.26.3
 kind-worker2         Ready    <none>          2m14s   v1.26.3
+
 ```
 
 
-### Create NGINX ingress controller
+## Step2: Create NGINX ingress controller
 
 apply the follow command to deploy the Nginx Ingress controller
 
@@ -45,7 +46,7 @@ ingress-nginx-controller-6bdf7bdbdd-vmjsr   1/1     Running     0          3m4s
 
 ```
 
-## Deplay `postgressql`
+## Step3:  Deplay `postgressql`
 
 
 Postgress is use to store metadata information about druid cluster is important have running pod for postgress
@@ -149,7 +150,7 @@ postgres     NodePort    10.96.49.43   <none>        5432:30151/TCP   14s
 ```
 
 
-## Create Imply Manager database
+## Step4: Create Imply Manager database
 
 ### Login postgres pod
 
@@ -226,22 +227,146 @@ exit
  ```
 
 
-## Add the DNS record to the host file 
+## Step5: Add the DNS record to the host file 
+
+Add new DNS record for the localhost
+
+```
+sudo vi /etc/hosts
+
+```
+
+Add the following values
+```
+127.0.0.1       manager.testzone.io
+127.0.0.1       query.testzone.io
+
+```
+
+## Step6: Imply Helm chart deployment 
 
 
-`
+Install helm3 if you dont have installed on your laptop. For more information [how to install helm](https://helm.sh/docs/intro/install/) on your laptop.
 
-`
+### Add imply helm repo
 
-## Imply Helm chat deployment 
+For more info check imply website [here](https://docs.imply.io/latest/k8s-minikube/)
+
+```
+helm repo add imply https://static.imply.io/onprem/helm
+
+helm repo update
+
+```
+
+### Pull and update imply chart(Optional) 
+
+Below step is optional since we have already pull imply helm chart folder and updated the chart. To get the latest chart here is `imply` folder in this repo and run the following command. And Edit the [values.yaml](https://github.com/mussa-shirazi-imply/imply-kubernetes/blob/f44bf957bca78e6951524b252c3c2a1104cd5495/imply/values.yaml) file on `./imply`
+
+
+```
+helm pull imply/imply --untar
+
+```
+
+Disable the mysql deployment. By default imply helm chart deploys mysql . However since mysql have some issue with m1 mac. we update the [values.yaml](https://github.com/mussa-shirazi-imply/imply-kubernetes/blob/f44bf957bca78e6951524b252c3c2a1104cd5495/imply/values.yaml)  to disbale mysql. As we will postgress which we deployed in previous step for storing druid metadata. 
+This is already donte on this repo but you can check the [values.yaml](https://github.com/mussa-shirazi-imply/imply-kubernetes/blob/f44bf957bca78e6951524b252c3c2a1104cd5495/imply/values.yaml)
+
+```
+deployments:
+  manager: true
+  agents: true
+  zookeeper: true
+  mysql: false
+  minio: true
+
+
+```
+
+update the [mysql](https://github.com/mussa-shirazi-imply/imply-kubernetes/blob/f44bf957bca78e6951524b252c3c2a1104cd5495/imply/values.yaml#L55) section with postgress config . We have arleady updated as part of this repo. but incase you pulled the latest repo then you need to update [section](https://github.com/mussa-shirazi-imply/imply-kubernetes/blob/f44bf957bca78e6951524b252c3c2a1104cd5495/imply/values.yaml#L55)
+
+```
+metadataStore:
+  type: postgresql
+  host: postgres.default.svc.cluster.local
+  port: 5432
+  user: admin
+  password: psltest
+  database: imply-manager
+  # tlsCert: |
+  #   -----BEGIN CERTIFICATE-----
+  #   ...
+  #   -----END CERTIFICATE-----
+
+```
+
+### Deploy imply chart
+
+Use the follow command on the command line to deploy the imply chart. `./imply` make sure that we are picking the values from `./imply` folder which we updated in previous step. 
+
+```
+helm install imply ./imply
+
+```
+
+### Confirm the imply pods are deployed.
+
+Make sure you have installed [Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/) utility on your mac. use the follow command to confirm the chart is deployed. 
+
+
+```
+kubectl get pods
+
+```
+
+> **Note**
+> Dont worry as you may see some pods are not fully up and should show similar output. In this step make sure `zookeeper`,`manager` and `master` pods are up and proced to next step.
 
 
 
 
-## Ingress Controller
+## Step7 : Ingress Controller
 
+Deploy ingress controller configs. the config is located `./ngix-controller` folder . As of part of the configuration we will map url `manager.testzone.io` with `imply-manager-int`. That mean this url will open imply manager. This configs map `query.testzone.io` with `imply-query` service, that mean this url will open druid console when all the services are implemented.  
 
 ```
 kubectl apply -f ngix-controller/ingress.yaml
 
 ```
+
+Deployment view should look like as follows 
+
+![Logo](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/th5xamgrr6se0x5ro4g6.png)
+
+
+
+## Step8 : Change default cluster configuration on imply manager
+
+Open in the browser in the url :  http://manager.testzone.io
+
+This is imporportant step as after making this change you should notice that all the pods are up and running. Change the metadata storge setting to use the postgress we deployed earlier.
+
+
+![Logo](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/th5xamgrr6se0x5ro4g6.png)
+
+
+
+## Step 9 : Confirm All the pods are up and you are able to access Druid console
+
+Use the follow the `kubectl get pods` command to confirm all the pods are up and output should look as follow 
+
+
+```
+NAME                             READY   STATUS    RESTARTS      AGE
+imply-data-0                     1/1     Running   0             16h
+imply-data-1                     1/1     Running   0             16h
+imply-manager-78f8654b4b-jz5gm   1/1     Running   0             16h
+imply-master-7c69ff8d4-62qjd     1/1     Running   1 (16h ago)   16h
+imply-minio-5d85c84dc4-px8w5     1/1     Running   0             16h
+imply-query-d966fb766-dbw8n      1/1     Running   0             16h
+imply-zookeeper-0                1/1     Running   0             16h
+postgres-7454f995b-hzsjs         1/1     Running   0             16h
+
+```
+
+open the browser url to access http://query.testzone.io/ . This should open Druid console 
