@@ -2,11 +2,18 @@
  
 # Introduction
 
-This repo to deploy imply enterprise on your laptop using kind kubernetes. Below diagram shows how the pods are deployed. Since this is dev setup we will only single pod for each service. For production the setup will look like different . We are also using ngix ingress controller connect to the imply manager and druid console. 
+This repo is for deploying Imply Enterprise on your mac/linux laptop using Kind Kubernetes. The diagram below shows how the pods are deployed. Since this is a development setup, we will use only a single pod for each service. For production, the setup will look different. We are also using an NGINX ingress controller to connect to the Imply Manager and Druid console. Also the default implementation uses mysql for metadata. we will use postgress for store metadata. 
 
 ![pod](./images/pods.png)
 
+* Bullet list
+    * Nested bullet
+        * Sub-nested bullet etc
+* Bullet list item 2
+
  ## Step1 : Create Kind cluster
+
+ Create the cluster using the default cluster name kind. For more information on how to install the Kind application on your laptop, check the 
 
 create the cluster using the default cluster name kind . For more information [on how to install ](https://kind.sigs.k8s.io/docs/user/quick-start/) kind application your laptop
   
