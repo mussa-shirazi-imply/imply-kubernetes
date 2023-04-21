@@ -1,4 +1,4 @@
-# imply-kubernetes  
+# Deploy Imply Enterprise on Kubernetes on Mac with Postgress  
  
 # Introduction
 
