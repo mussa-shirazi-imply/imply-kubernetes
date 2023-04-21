@@ -21,13 +21,15 @@ Its important to install follow applicatons on your mac or linux machine before 
 
 Create the cluster using the default cluster name kind. For more information on how to install the Kind application on your laptop, check the [Kind Quick Start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) 
 
-
-`kind create cluster --config kind-cluster/kube-demo-cluster.yaml`
-
+```
+kind create cluster --config kind-cluster/kube-demo-cluster.yaml
+```
 
 #### Check Cluster nodes
 
-`kubectl get nodes`
+```
+kubectl get nodes
+```
 
 The output should look like below:
 
