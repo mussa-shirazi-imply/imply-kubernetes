@@ -50,7 +50,7 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main
 
 ```
 
-You need to wait a minute or two for the pods in the `ingress-nginx` namespace.
+You need to wait a minute or two for the pod `ingress-nginx-controller-` to come up in the `ingress-nginx` namespace. You may have different pod name as kubernetes deployment have dynamic name.
 
 ```
  kubectl get pods -n ingress-nginx
@@ -59,10 +59,7 @@ You need to wait a minute or two for the pods in the `ingress-nginx` namespace.
 
 ```
 NAME                                        READY   STATUS      RESTARTS   AGE
-ingress-nginx-admission-create-bgdgq        0/1     Completed   0          3m4s
-ingress-nginx-admission-patch-8p447         0/1     Completed   0          3m4s
 ingress-nginx-controller-6bdf7bdbdd-vmjsr   1/1     Running     0          3m4s
-
 ```
 
 ## Step3:  Deplay `postgressql`
@@ -75,15 +72,17 @@ PostgreSQL is used to store metadata information about the Druid cluster. It is 
 The config map file `postgres-config.yaml` is located in the ./postgresql folder. You can review it for more detail. The config map is used to store the username and password for PostgreSQL
 
 
-`
+
+```
 kubectl apply -f postgressql/postgres-config.yaml
-`
+```
 
 Confirm the config map is applied:
 
-`
+
+```
 kubectl get configmap
-`
+```
 
 ```
 NAME               DATA   AGE
