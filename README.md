@@ -163,9 +163,9 @@ postgres-7454f995b-hzsjs   1/1     Running   0          29s
 In this step, we will create a `PostgreSQL` service. In Kubernetes, a `Service` is a method for exposing a network application that is running as one or more Pods in your cluster. There are different types of services like `ClusterIP, NodePort, LoadBalancer, and Ingress`. More details can be found in this [blog post](`https://medium.com/devops-mojo/). We are going to use `NodePort`. Examine the file `postgres-service.yaml` in the `./postgress` folder.
 
 
+
 ```
 kubectl apply -f postgressql/postgres-service.yaml
-
 ```
 
 ##### confirm the service is added 
@@ -196,7 +196,9 @@ Get the PostgreSQL pod name:
 
 ```
 kubectl get pods
+```
 
+```
 NAME                       READY   STATUS    RESTARTS   AGE
 postgres-7454f995b-trz6f   1/1     Running   0          25m
 
@@ -217,7 +219,7 @@ psql -h postgres.default.svc.cluster.local -U admin --password postgresdb -p 543
 
 ```
 
-The password from the PostgreSQL config map: psltest
+The password from the PostgreSQL config map: `psltest`
 
 
 ```
@@ -361,20 +363,23 @@ helm install imply ./imply
 
 Make sure you have the [Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/) utility installed on your Mac. Use the following command to confirm the chart is deployed:
 
+Confirm the pods are deployed
 
 ```
 kubectl get pods
+```
 
-NAME                             READY   STATUS    RESTARTS      AGE
-imply-data-0                     0/1     Running   0             20h
-imply-data-1                     0/1     Running   0             20h
-imply-manager-78f8654b4b-jz5gm   1/1     Running   0             20h
-imply-master-7c69ff8d4-62qjd     0/1     Running   1 (19h ago)   20h
-imply-minio-5d85c84dc4-px8w5     1/1     Running   0             20h
-imply-query-d966fb766-dbw8n      0/1     Running   0             20h
-imply-zookeeper-0                1/1     Running   0             20h
-postgres-7454f995b-hzsjs         1/1     Running   0             20h
 
+```
+NAME                             READY   STATUS    RESTARTS   AGE
+imply-data-0                     0/1     Running   0          2m39s
+imply-data-1                     0/1     Running   0          2m39s
+imply-manager-78f8654b4b-srb4t   1/1     Running   0          2m39s
+imply-master-7c69ff8d4-9vvfc     0/1     Running   0          2m39s
+imply-minio-7547bd8466-mxmsd     1/1     Running   0          2m39s
+imply-query-d966fb766-h5xk5      0/1     Running   0          2m39s
+imply-zookeeper-0                1/1     Running   0          2m39s
+postgres-7454f995b-9gh2z         1/1     Running   0          6m24s
 ```
 
 
@@ -392,6 +397,19 @@ kubectl apply -f ngix-controller/ingress.yaml
 
 ```
 
+Check the ingress is deployed 
+
+
+```
+kubectl get ingress
+```
+Output should like below 
+
+```
+NAME            CLASS    HOSTS                                   ADDRESS   PORTS   AGE
+nginx-ingress   <none>   manager.testzone.io,query.testzone.io             80      13s
+```
+
 The deployment view should look like the following:
 
 ![Logo](./images/pods.png)
@@ -404,6 +422,14 @@ Network view
 ## Step 8 : Change default cluster configuration and start cluster on imply manager
 
 Open the following URL in your browser: http://manager.testzone.io
+
+You will be presented with below page. Enter all the details. The information is stored on the local DB. 
+
+
+![login](./images/login.png)
+
+
+
 
 This is an important step, as after making this change, you should notice that all the pods are up and running. Change the metadata storage setting to use the PostgreSQL instance deployed earlier.
 
