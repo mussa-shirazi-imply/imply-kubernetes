@@ -69,14 +69,12 @@ Apply the following command to deploy the NGINX Ingress controller:
 
 ```
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
 ```
 
 You need to wait a minute or two for the pod `ingress-nginx-controller-` to come up in the `ingress-nginx` namespace. You may have different pod name as kubernetes deployment have dynamic name.
 
 ```
- kubectl get pods -n ingress-nginx
-
+kubectl get pods -n ingress-nginx
 ```
 
 ```
@@ -96,7 +94,6 @@ The config map file `postgres-config.yaml` is located in the ./postgresql folder
 
 ```
 kubectl apply -f postgressql/postgres-config.yaml
-
 ```
 
 Confirm the config map is applied:
@@ -105,12 +102,12 @@ Confirm the config map is applied:
 ```
 kubectl get configmap
 ```
+the output should look like below 
 
 ```
 NAME               DATA   AGE
 kube-root-ca.crt   1      3m5s
 postgres-config    3      10s
-
 ```
 
 ### create persistent volume file `postgres-pvc-pv.yaml`
@@ -131,7 +128,6 @@ Confirm the PV and PVC is deployed
 
 ```
 kubectl get pv
-
 ```
 
 Output should look like below 
@@ -142,7 +138,7 @@ postgres-pv-volume   1Gi        RWX            Retain           Bound    default
 
 ```
 
-Get the PVC
+Confirm the PVC is installed
 
 ```
 kubectl get pvc
@@ -250,6 +246,9 @@ The password from the PostgreSQL config map: `psltest`
 #psql (10.1)
 #Type "help" for help.
 #
+
+You should see the shell like below 
+
 #postgresdb=#
 
 ```
@@ -292,12 +291,16 @@ and then
 
 exit
 
+exit
+
  ```
+
+Make sure you are out of posgress pod shell and back to your cli .
 
 
 ## Step 5: Add the DNS record to the host file 
 
-Add a new DNS record for the localhost:
+Add a new DNS record for the command line:
 
 ```
 sudo vi /etc/hosts
@@ -381,6 +384,9 @@ helm install imply ./imply
 
 ```
 
+Wait for 2 to 4 minutes for pods to deploy.
+
+
 ### Confirm the imply pods are deployed.
 
 Make sure you have the [Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/) utility installed on your Mac. Use the following command to confirm the chart is deployed:
@@ -416,7 +422,6 @@ Deploy the ingress controller configs located in the `./ngix-controller` folder.
 
 ```
 kubectl apply -f ngix-controller/ingress.yaml
-
 ```
 
 Check the ingress is deployed 
@@ -447,18 +452,68 @@ Open the following URL in your browser: http://manager.testzone.io
 
 You will be presented with below page. Enter all the details. The information is stored on the local DB. 
 
+> **Note**
+> I encountered an issue in this step while creating a user ID when I immediately started creating a user right after the previous step. It's best to wait for 5 minutes before adding the details. I used the following ID details for testing. For production use, make sure to employ appropriate credentials and configurations.
+
+```
+firstname : test
+last: cluster
+userid: testid
+password : implytest
+
+```
+
 
 ![login](./images/login.png)
 
 
+You should be presented with following screen. Dont worry about Critical status for now . click on the `Manage` button
 
 
-This is an important step, as after making this change, you should notice that all the pods are up and running. Change the metadata storage setting to use the PostgreSQL instance deployed earlier.
+![firstpage](./images/firstpage.png)
 
 
-![sql](./images/sql.png)
+Go to `Setup` page and Change the metadata storage setting to use the PostgreSQL instance deployed earlier.
 
-Now click on "Start" to start the pods. If everything goes well, all pods should be running, as shown in the step below.
+
+
+```
+Type: postgresql
+
+Schema : druid_ref
+
+Host: postgres.default.svc.cluster.local
+
+port: 5432
+
+User : admin
+
+password: psltest
+
+```
+
+as shown in the screenshot below . After making the chage , `click` apply changes
+
+
+![manager2](./images/manager2)
+
+
+on the screen below click `Accept` 
+
+![manager3](./images/manager3)
+
+
+Click Start to Start the cluster 
+
+
+![manager4](./images/manager4)
+
+After 5 minutes you should see the cluster up and running 
+
+![manager6](./images/manager6)
+
+
+If everything goes well, all pods should be running, as shown in the step below.
 
 
 ![start](./images/manager.png)
