@@ -150,6 +150,9 @@ Check the pods:
 
 ```
 kubectl get pods
+```
+
+```
 NAME                       READY   STATUS    RESTARTS   AGE
 postgres-7454f995b-hzsjs   1/1     Running   0          29s
 
