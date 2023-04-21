@@ -366,7 +366,7 @@ postgres-7454f995b-hzsjs         1/1     Running   0             20h
 >Don't worry if you see some pods are not fully up and show similar output. In this step, make sure the `zookeeper`, `manager`, and `master` pods are up and proceed to the next step.
 
  
-## Step7 : Ingress Controller
+## Step 7 : Ingress Controller
 
 Deploy the ingress controller configs located in the `./ngix-controller` folder. As part of the configuration, we will map the URL `manager.testzone.io` with `imply-manager-int`, meaning this URL will open the Imply Manager. The configs also map `query.testzone.io` with the `imply-query` service, meaning this URL will open the Druid console when all the services are implemented.
 
@@ -385,7 +385,7 @@ Network view
 
 ![Logo](./images/network_view.png)
 
-## Step8 : Change default cluster configuration and start cluster on imply manager
+## Step 8 : Change default cluster configuration and start cluster on imply manager
 
 Open the following URL in your browser: http://manager.testzone.io
 
