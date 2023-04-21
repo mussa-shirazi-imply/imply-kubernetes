@@ -110,14 +110,25 @@ Confirm the PV and PVC is deployed
 ```
 kubectl get pv
 
+```
 
+Output should look like below 
+
+```
 NAME                 CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                       STORAGECLASS   REASON   AGE
 postgres-pv-volume   1Gi        RWX            Retain           Bound    default/postgres-pv-claim   manual                  28s
 
 ```
+
+Get the PVC
+
 ```
 kubectl get pvc
+```
 
+Output should look like below 
+
+```
 NAME                STATUS   VOLUME               CAPACITY   ACCESS MODES   STORAGECLASS   AGE
 postgres-pv-claim   Bound    postgres-pv-volume   1Gi        RWX            manual         17s
 
