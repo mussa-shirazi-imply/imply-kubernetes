@@ -13,10 +13,9 @@ This repo is for deploying Imply Enterprise on your mac/linux laptop using Kind 
 
  ## Step1 : Create Kind cluster
 
- Create the cluster using the default cluster name kind. For more information on how to install the Kind application on your laptop, check the 
+Create the cluster using the default cluster name kind. For more information on how to install the Kind application on your laptop, check the [Kind Quick Start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) 
 
-create the cluster using the default cluster name kind . For more information [on how to install ](https://kind.sigs.k8s.io/docs/user/quick-start/) kind application your laptop
-  
+
 `kind create cluster --config kind-cluster/kube-demo-cluster.yaml`
 
 
