@@ -495,22 +495,22 @@ password: psltest
 as shown in the screenshot below . After making the chage , `click` apply changes
 
 
-![manager2](./images/manager2)
+![manager2](./images/manager2.png)
 
 
 on the screen below click `Accept` 
 
-![manager3](./images/manager3)
+![manager3](./images/manager3.png)
 
 
 Click Start to Start the cluster 
 
 
-![manager4](./images/manager4)
+![manager4](./images/manager4.png)
 
 After 5 minutes you should see the cluster up and running 
 
-![manager6](./images/manager6)
+![manager6](./images/manager6.png)
 
 
 If everything goes well, all pods should be running, as shown in the step below.
