@@ -25,6 +25,26 @@ Create the cluster using the default cluster name kind. For more information on 
 kind create cluster --config kind-cluster/kube-demo-cluster.yaml
 ```
 
+The output should look like below 
+
+```
+Creating cluster "kind" ...
+ ✓ Ensuring node image (kindest/node:v1.26.3) 🖼
+ ✓ Preparing nodes 📦 📦 📦
+ ✓ Writing configuration 📜
+ ✓ Starting control-plane 🕹️
+ ✓ Installing CNI 🔌
+ ✓ Installing StorageClass 💾
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-kind"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-kind
+
+Thanks for using kind! 😊
+
+```
+
 #### Check Cluster nodes
 
 ```
