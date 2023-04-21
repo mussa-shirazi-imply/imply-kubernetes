@@ -72,9 +72,9 @@ PostgreSQL is used to store metadata information about the Druid cluster. It is 
 The config map file `postgres-config.yaml` is located in the ./postgresql folder. You can review it for more detail. The config map is used to store the username and password for PostgreSQL
 
 
-
 ```
 kubectl apply -f postgressql/postgres-config.yaml
+
 ```
 
 Confirm the config map is applied:
@@ -98,10 +98,13 @@ Create the persistent volume claim for PostgreSQL. To review the file, look for 
 For more detail on persistent volumes and persistent volume claims, visit the [Kubernetes documentation](https://kubernetes.io/docs/concepts/storage/persistent-volumes).
 
 
-`
+```
 kubectl apply -f postgressql/postgres-pvc-pv.yaml
+```
 
-`
+Confirm the PV and PVC is deployed
+
+
 ### confirm the pv and pvc is deployed
 
 ```
