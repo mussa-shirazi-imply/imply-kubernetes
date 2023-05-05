@@ -39,9 +39,10 @@ deploy-ingress-controller:
 	kubectl apply -f ngix-controller/ingress.yaml
 
 update-hosts:
+	@echo "****** Enter your Admin Password To update your /etc/hosts file *******"
 	@echo "Updating /etc/hosts file..."
-	@echo '127.0.0.1       manager.testzone.io' | tee -a /etc/hosts
-	@echo '127.0.0.1       query.testzone.io' |  tee -a /etc/hosts
+	@echo '127.0.0.1       manager.testzone.io' | sudo tee -a /etc/hosts
+	@echo '127.0.0.1       query.testzone.io' |  sudo tee -a /etc/hosts
 	@echo "Hosts file updated."
 
 check-ingress-installed:
