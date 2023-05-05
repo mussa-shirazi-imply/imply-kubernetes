@@ -122,11 +122,11 @@ druid:
   # Log output of the update can be found in the manager pod.
   update: disabled
   metadataStore:
-    type: mysql
-    host: "{{ .Release.Name }}-mysql"
-    port: 3306
-    user: root
-    password: imply
+    type: postgresql
+    host: postgres.default.svc.cluster.local
+    port: 5432
+    user: admin
+    password: psltest
     # tlsCert: |
     #   -----BEGIN CERTIFICATE-----
     #   ...
