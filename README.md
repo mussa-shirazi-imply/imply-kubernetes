@@ -25,6 +25,13 @@ Clone the repo and run all the commands from the root of the folder.
 git clone https://github.com/mussa-shirazi-imply/imply-kubernetes.git
 ```
 
+## Type of Deployments 
+
+There are two way you can deploy the running Cluster, Make using the `make` 
+
+
+
+
  ## Step 1 : Create Kind cluster
 
 Create the cluster using the default cluster name kind. For more information on how to install the Kind application on your laptop, check the [Kind Quick Start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) 

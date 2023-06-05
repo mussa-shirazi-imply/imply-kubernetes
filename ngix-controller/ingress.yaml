@@ -25,3 +25,13 @@ spec:
                 port:
                   number: 8888
             pathType: ImplementationSpecific
+    - host: postgres.testzone.io
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: postgres
+                port:
+                  number: 5432
+            pathType: ImplementationSpecific

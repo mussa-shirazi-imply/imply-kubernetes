@@ -43,6 +43,7 @@ update-hosts:
 	@echo "Updating /etc/hosts file..."
 	@echo '127.0.0.1       manager.testzone.io' | sudo tee -a /etc/hosts
 	@echo '127.0.0.1       query.testzone.io' |  sudo tee -a /etc/hosts
+	@echo '127.0.0.1       posgress.testzone.io' |  sudo tee -a /etc/hosts
 	@echo "Hosts file updated."
 
 check-ingress-installed:
