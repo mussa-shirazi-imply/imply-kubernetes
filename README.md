@@ -554,3 +554,4 @@ postgres-7454f995b-hzsjs         1/1     Running   0             16h
 
 open the browser url to access http://query.testzone.io/ . This should open Druid console 
 
+some changes
