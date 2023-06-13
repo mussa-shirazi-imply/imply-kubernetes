@@ -554,4 +554,13 @@ postgres-7454f995b-hzsjs         1/1     Running   0             16h
 
 open the browser url to access http://query.testzone.io/ . This should open Druid console 
 
-some changes
+
+## Access Postgres : 
+
+To Access Postgress and look at the meta table use the port-forward
+
+
+```
+kubectl port-forward svc/postgres 5432:5432
+
+```
