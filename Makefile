@@ -12,7 +12,7 @@ check-cluster-deployed:
 	@echo "Cluster is ready."
 
 deploy-nginx-controller:
-	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	kubectl apply -f ngix-controller/ingress-deploy.yml
 	@echo "Waiting for the nginx controller to be up..."
 	@while ! kubectl get pods -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | grep -q Running; do sleep 2; done
 	@echo "Nginx controller is up."
@@ -43,7 +43,8 @@ update-hosts:
 	@echo "Updating /etc/hosts file..."
 	@echo '127.0.0.1       manager.testzone.io' | sudo tee -a /etc/hosts
 	@echo '127.0.0.1       query.testzone.io' |  sudo tee -a /etc/hosts
-	@echo '127.0.0.1       posgress.testzone.io' |  sudo tee -a /etc/hosts
+	@echo '127.0.0.1       pivot.testzone.io' |  sudo tee -a /etc/hosts
+
 	@echo "Hosts file updated."
 
 check-ingress-installed:

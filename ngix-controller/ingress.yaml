@@ -25,6 +25,16 @@ spec:
                 port:
                   number: 8888
             pathType: ImplementationSpecific
+    - host: pivot.testzone.io
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: imply-query
+                port:
+                  number: 9095
+            pathType: ImplementationSpecific            
     - host: postgres.testzone.io
       http:
         paths:
